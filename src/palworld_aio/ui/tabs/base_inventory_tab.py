@@ -78,8 +78,11 @@ class GuildItemPickerDialog(QDialog):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText(t('base_inventory.search_items') if t else 'Type to search items...')
         self.search_input.textChanged.connect(self._filter_items)
+        self.type_combo = QComboBox()
+        self.type_combo.setMinimumWidth(150)
         search_layout.addWidget(search_label)
         search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.type_combo)
         left_layout.addLayout(search_layout)
         self.results_list = QListWidget()
         self.results_list.setViewMode(QListView.IconMode)
@@ -174,6 +177,7 @@ class GuildItemPickerDialog(QDialog):
         content_layout.addWidget(right_widget, 2)
         layout.addLayout(content_layout)
         items = ItemData.get_all_items()
+        type_displays = set()
         for item in items:
             if item.get('sort_id', 0) == 9999:
                 continue
@@ -193,6 +197,10 @@ class GuildItemPickerDialog(QDialog):
             list_item.setData(Qt.UserRole + 1, name)
             list_item.setData(Qt.UserRole + 2, item.get('rarity', 0))
             list_item.setData(Qt.UserRole + 3, item.get('description', ''))
+            type_a_display = item.get('type_a_display', '')
+            list_item.setData(Qt.UserRole + 4, type_a_display)
+            if type_a_display:
+                type_displays.add(type_a_display)
             item_desc = item.get('description', '')
             tip = f'<b>{name}</b><br>({asset})'
             if item_desc:
@@ -204,13 +212,20 @@ class GuildItemPickerDialog(QDialog):
                 list_item.setIcon(QIcon(pixmap))
             list_item.setSizeHint(QSize(80, 80))
             self.results_list.addItem(list_item)
-    def _filter_items(self, query: str):
-        q = query.lower()
+        self.type_combo.addItem(t('inventory.all_types') if t else 'All Types', '')
+        for type_name in sorted(type_displays):
+            self.type_combo.addItem(type_name, type_name)
+        self.type_combo.currentIndexChanged.connect(self._filter_items)
+    def _filter_items(self, *_):
+        q = self.search_input.text().lower()
+        selected_type = self.type_combo.currentData() or ''
         for i in range(self.results_list.count()):
             item = self.results_list.item(i)
             name = item.text()
             asset = item.data(Qt.UserRole) or ''
-            item.setHidden(bool(q and q not in name.lower() and (q not in asset.lower())))
+            text_match = not q or q in name.lower() or q in asset.lower()
+            type_match = not selected_type or (item.data(Qt.UserRole + 4) or '') == selected_type
+            item.setHidden(not (text_match and type_match))
     def _on_item_clicked(self, item: QListWidgetItem):
         self.selected_item_id = item.data(Qt.UserRole)
         self.selected_item_name = item.data(Qt.UserRole + 1)
@@ -336,10 +351,10 @@ class GuildItemPickerDialog(QDialog):
         dlg = QInputDialog(self)
         dlg.setWindowTitle(t('base_inventory.remove_percentage') if t else 'Remove Percentage')
         dlg.setLabelText(t('base_inventory.enter_percentage') if t else 'Enter percentage to remove (1-100):')
-        dlg.setIntValue(50)
+        dlg.setInputMode(QInputDialog.IntInput)
         dlg.setIntRange(1, 100)
         dlg.setIntStep(10)
-        dlg.setInputMode(QInputDialog.IntInput)
+        dlg.setIntValue(50)
         dlg.setStyleSheet(INPUT_DIALOG_STYLE)
         ok = dlg.exec() == QDialog.Accepted
         pct = dlg.intValue() if ok else 50
@@ -3853,13 +3868,14 @@ class BaseInventoryTab(QWidget):
         current_count = slot_data.get('stack_count', 0)
         item_id = slot_data.get('item_id', '')
         max_qty = ItemData.get_effective_max_stack(item_id) if item_id else constants.MAX_QUANTITY
+        max_qty = max(max_qty, current_count)
         dlg = QInputDialog(self)
         dlg.setWindowTitle(t('base_inventory.edit_quantity') if t else 'Edit Quantity')
         dlg.setLabelText(t('base_inventory.current_count') if t else f'Current count: {current_count}')
-        dlg.setIntValue(current_count)
+        dlg.setInputMode(QInputDialog.IntInput)
         dlg.setIntRange(0, max_qty)
         dlg.setIntStep(1)
-        dlg.setInputMode(QInputDialog.IntInput)
+        dlg.setIntValue(current_count)
         dlg.setStyleSheet(INPUT_DIALOG_STYLE)
         ok = dlg.exec() == QDialog.Accepted
         new_count = dlg.intValue() if ok else current_count

@@ -1,5 +1,5 @@
 import os
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QMessageBox, QSpinBox, QFrame, QAbstractItemView, QListView, QTabWidget, QWidget, QInputDialog
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QComboBox, QMessageBox, QSpinBox, QFrame, QAbstractItemView, QListView, QTabWidget, QWidget, QInputDialog
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QPixmap, QIcon, QColor, QPainter, QPen
 from PySide6.QtWidgets import QStyledItemDelegate, QSplitter
@@ -64,8 +64,16 @@ class PlayerItemActionDialog(QDialog):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText(t('player_item.search_placeholder') if t else 'Type to search items...')
         self.search_input.textChanged.connect(self._filter_items)
+        self.type_combo = QComboBox()
+        self.type_combo.setMinimumWidth(150)
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem(t('inventory.sort_default') if t else 'Default order', 'default')
+        self.sort_combo.addItem(t('inventory.sort_name') if t else 'Name (A-Z)', 'name')
+        self.sort_combo.addItem(t('inventory.sort_rarity') if t else 'Rarity (high to low)', 'rarity')
         search_bar_layout.addWidget(search_label)
         search_bar_layout.addWidget(self.search_input)
+        search_bar_layout.addWidget(self.type_combo)
+        search_bar_layout.addWidget(self.sort_combo)
         layout.addLayout(search_bar_layout)
         self.item_tabs = QTabWidget()
         self._inv_grid = self._make_item_grid()
@@ -167,6 +175,7 @@ class PlayerItemActionDialog(QDialog):
     def _load_items(self):
         self._all_items = ItemData.get_all_items()
         unlock_assets = {'AutoMealPouch_Tier1', 'AutoMealPouch_Tier2', 'AutoMealPouch_Tier3', 'AutoMealPouch_Tier4', 'AutoMealPouch_Tier5', 'UnlockEquipmentSlot_Accessory_01', 'Accessory_02', 'UnlockEquipmentSlot_Weapon_01', 'Weapon_02'}
+        type_displays = set()
         for tab_idx, type_a_filter in enumerate([False, True]):
             grid = self._inv_grid if tab_idx == 0 else self._key_grid
             for item in self._all_items:
@@ -196,6 +205,10 @@ class PlayerItemActionDialog(QDialog):
                 list_item.setData(Qt.UserRole + 3, type_a)
                 list_item.setData(Qt.UserRole + 4, item.get('description', ''))
                 list_item.setData(Qt.UserRole + 5, item.get('type_b', ''))
+                type_a_display = item.get('type_a_display', '')
+                list_item.setData(Qt.UserRole + 6, type_a_display)
+                if type_a_display:
+                    type_displays.add(type_a_display)
                 desc = item.get('description', '')
                 tip = f'<b>{name}</b><br>({asset})'
                 if desc:
@@ -208,15 +221,39 @@ class PlayerItemActionDialog(QDialog):
                     if not pixmap.isNull():
                         list_item.setIcon(QIcon(pixmap))
                 list_item.setSizeHint(QSize(84, 84))
+                list_item.setData(Qt.UserRole + 7, grid.count())
                 grid.addItem(list_item)
-    def _filter_items(self, query: str):
-        q = query.lower()
+        self.type_combo.addItem(t('inventory.all_types') if t else 'All Types', '')
+        for type_name in sorted(type_displays):
+            self.type_combo.addItem(type_name, type_name)
+        self.type_combo.currentIndexChanged.connect(self._filter_items)
+        self.sort_combo.currentIndexChanged.connect(self._apply_sort)
+    def _apply_sort(self, *_):
+        mode = self.sort_combo.currentData()
+        for grid in [self._inv_grid, self._key_grid]:
+            items = []
+            while grid.count():
+                items.append(grid.takeItem(0))
+            if mode == 'rarity':
+                items.sort(key=lambda it: (-(it.data(Qt.UserRole + 2) or 0), it.text().lower()))
+            elif mode == 'name':
+                items.sort(key=lambda it: it.text().lower())
+            else:
+                items.sort(key=lambda it: it.data(Qt.UserRole + 7) or 0)
+            for it in items:
+                grid.addItem(it)
+        self._filter_items()
+    def _filter_items(self, *_):
+        q = self.search_input.text().lower()
+        selected_type = self.type_combo.currentData() or ''
         for grid in [self._inv_grid, self._key_grid]:
             for i in range(grid.count()):
                 item = grid.item(i)
                 name = item.text()
                 asset = item.data(Qt.UserRole) or ''
-                item.setHidden(bool(q and q not in name.lower() and (q not in asset.lower())))
+                text_match = not q or q in name.lower() or q in asset.lower()
+                type_match = not selected_type or (item.data(Qt.UserRole + 6) or '') == selected_type
+                item.setHidden(not (text_match and type_match))
     def _on_item_clicked(self, item: QListWidgetItem):
         self.selected_item_id = item.data(Qt.UserRole)
         self.selected_item_name = item.text()

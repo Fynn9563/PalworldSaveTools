@@ -875,9 +875,9 @@ class MainWindow(QMainWindow):
             dlg = QInputDialog(self)
             dlg.setWindowTitle(t('inventory.effigy_add_qty_title', default='Effigy Quantity'))
             dlg.setLabelText(t('inventory.effigy_add_qty_prompt', default='How many of each effigy type to add?'))
-            dlg.setIntValue(effigy_qty)
-            dlg.setIntRange(1, constants.MAX_QUANTITY)
             dlg.setInputMode(QInputDialog.IntInput)
+            dlg.setIntRange(1, constants.MAX_QUANTITY)
+            dlg.setIntValue(effigy_qty)
             dlg.setStyleSheet(DARK_THEME_STYLE)
             if dlg.exec() == QDialog.Accepted:
                 effigy_qty = dlg.intValue()
