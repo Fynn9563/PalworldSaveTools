@@ -1111,8 +1111,16 @@ class ItemPickerDialog(QDialog):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText(t('inventory.search_placeholder', default='Type to search items...'))
         self.search_input.textChanged.connect(self._filter_items)
+        self.type_combo = QComboBox()
+        self.type_combo.setMinimumWidth(150)
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem(t('inventory.sort_default', default='Default order'), 'default')
+        self.sort_combo.addItem(t('inventory.sort_name', default='Name (A-Z)'), 'name')
+        self.sort_combo.addItem(t('inventory.sort_rarity', default='Rarity (high to low)'), 'rarity')
         search_layout.addWidget(search_label)
         search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.type_combo)
+        search_layout.addWidget(self.sort_combo)
         layout.addLayout(search_layout)
         self.results_list = QListWidget()
         self.results_list.setViewMode(QListView.IconMode)
@@ -1154,6 +1162,7 @@ class ItemPickerDialog(QDialog):
         qty_layout.addWidget(cancel_btn)
         layout.addLayout(qty_layout)
         items = ItemData.get_all_items()
+        type_displays = set()
         for item in items:
             type_a = item.get('type_a', '')
             type_b = item.get('type_b', '')
@@ -1197,6 +1206,10 @@ class ItemPickerDialog(QDialog):
             list_item.setData(Qt.UserRole + 3, type_a)
             list_item.setData(Qt.UserRole + 4, item.get('description', ''))
             list_item.setData(Qt.UserRole + 5, item.get('type_b', ''))
+            type_a_display = item.get('type_a_display', '')
+            list_item.setData(Qt.UserRole + 6, type_a_display)
+            if type_a_display:
+                type_displays.add(type_a_display)
             icon_path = item.get('icon', '')
             if icon_path:
                 pixmap = ItemData.get_item_icon(icon_path, QSize(48, 48))
@@ -1211,14 +1224,37 @@ class ItemPickerDialog(QDialog):
                 tooltip += f'<br><br><span style="color:#94a3b8;font-size:11px">{wrap_tooltip_text(cleaned)}</span>'
             list_item.setToolTip(tooltip)
             list_item.setSizeHint(QSize(80, 80))
+            list_item.setData(Qt.UserRole + 7, self.results_list.count())
             self.results_list.addItem(list_item)
-    def _filter_items(self, query: str):
-        q = query.lower()
+        self.type_combo.addItem(t('inventory.all_types', default='All Types'), '')
+        for type_name in sorted(type_displays):
+            self.type_combo.addItem(type_name, type_name)
+        self.type_combo.currentIndexChanged.connect(self._filter_items)
+        self.sort_combo.currentIndexChanged.connect(self._apply_sort)
+    def _apply_sort(self, *_):
+        mode = self.sort_combo.currentData()
+        items = []
+        while self.results_list.count():
+            items.append(self.results_list.takeItem(0))
+        if mode == 'rarity':
+            items.sort(key=lambda it: (-(it.data(Qt.UserRole + 2) or 0), it.text().lower()))
+        elif mode == 'name':
+            items.sort(key=lambda it: it.text().lower())
+        else:
+            items.sort(key=lambda it: it.data(Qt.UserRole + 7) or 0)
+        for it in items:
+            self.results_list.addItem(it)
+        self._filter_items()
+    def _filter_items(self, *_):
+        q = self.search_input.text().lower()
+        selected_type = self.type_combo.currentData() or ''
         for i in range(self.results_list.count()):
             item = self.results_list.item(i)
             name = item.text()
             asset = item.data(Qt.UserRole) or ''
-            item.setHidden(bool(q and q not in name.lower() and (q not in asset.lower())))
+            text_match = not q or q in name.lower() or q in asset.lower()
+            type_match = not selected_type or (item.data(Qt.UserRole + 6) or '') == selected_type
+            item.setHidden(not (text_match and type_match))
     def _adjust_width(self):
         m = self.layout().contentsMargins()
         frame_w = self.frameGeometry().width() - self.geometry().width()
@@ -1671,9 +1707,9 @@ class PlayerInventoryTab(QWidget):
                 dlg = QInputDialog(self)
                 dlg.setWindowTitle(t('inventory.effigy_add_qty_title', default='Effigy Quantity'))
                 dlg.setLabelText(t('inventory.effigy_add_qty_prompt', default='How many of each effigy type to add?'))
-                dlg.setIntValue(1)
-                dlg.setIntRange(1, constants.MAX_QUANTITY)
                 dlg.setInputMode(QInputDialog.IntInput)
+                dlg.setIntRange(1, constants.MAX_QUANTITY)
+                dlg.setIntValue(1)
                 dlg.setStyleSheet(DARK_THEME_STYLE)
                 if dlg.exec() == QDialog.Accepted:
                     self.inventory.set_all_effigy_counts(dlg.intValue())
@@ -2633,7 +2669,8 @@ class QuantityDialog(QDialog):
         self.setStyleSheet(DARK_THEME_STYLE)
         layout = QVBoxLayout(self)
         self.spin_box = QSpinBox()
-        self.spin_box.setRange(1, max_val if max_val is not None else constants.MAX_QUANTITY)
+        limit = max_val if max_val is not None else constants.MAX_QUANTITY
+        self.spin_box.setRange(1, max(limit, current_qty))
         self.spin_box.setValue(current_qty)
         layout.addWidget(self.spin_box)
         btn_layout = QHBoxLayout()

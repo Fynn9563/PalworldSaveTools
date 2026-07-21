@@ -1,6 +1,6 @@
 import os
 import re
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QStyledItemDelegate, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QStyledItemDelegate, QApplication
 from PySide6.QtCore import Qt, QTimer, QRectF, QSize, QPoint, QThread
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QLinearGradient, QIcon, QCursor, QFontMetrics
 from PySide6.QtWidgets import QStyle
@@ -174,6 +174,7 @@ class _ActiveSkillDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
         return QSize(200, 28)
 class SkillPicker(QWidget):
+    _sticky_desc_mode = False
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
@@ -181,10 +182,50 @@ class SkillPicker(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(2)
         self._search = QLineEdit()
         self._search.setPlaceholderText('Search...')
         self._search.setStyleSheet(PICKER_SEARCH_STYLE)
-        layout.addWidget(self._search)
+        search_row.addWidget(self._search)
+        self._search_desc_mode = False
+        self._mode_btn = QPushButton()
+        self._mode_btn.setCheckable(True)
+        self._mode_btn.setCursor(Qt.PointingHandCursor)
+        self._mode_btn.setToolTip(t('skill_picker.search_mode_tip') if t else 'Toggle between searching by skill name and by what the skill does')
+        self._mode_btn.setStyleSheet('QPushButton { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; color: #E2E8F0; padding: 2px 8px; font-size: 10px; } QPushButton:checked { background: rgba(59,142,208,0.35); border-color: rgba(125,211,252,0.6); } QPushButton:hover { border-color: rgba(125,211,252,0.4); }')
+        self._mode_btn.clicked.connect(self._toggle_search_mode)
+        search_row.addWidget(self._mode_btn)
+        layout.addLayout(search_row)
+        self._update_mode_ui()
+        self._tier_filter = None
+        self._tier_buttons = {}
+        self._tier_row = QWidget()
+        tier_layout = QHBoxLayout(self._tier_row)
+        tier_layout.setContentsMargins(0, 0, 0, 0)
+        tier_layout.setSpacing(2)
+        tier_defs = [
+            (None, t('skill_picker.tier_all') if t else 'All', '#E2E8F0'),
+            ('common', t('skill_picker.tier_common') if t else 'Common', None),
+            ('rare', t('skill_picker.tier_rare') if t else 'Rare', None),
+            ('epic', t('skill_picker.tier_epic') if t else 'Epic', None),
+            ('negative', t('skill_picker.tier_negative') if t else 'Negative', None),
+        ]
+        tier_color_ranks = {'common': 1, 'rare': 2, 'epic': 4, 'negative': -99}
+        for tier_key, label, color in tier_defs:
+            if color is None:
+                _, _, color = dm.passive_rank_color(tier_color_ranks[tier_key])
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(tier_key is None)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(f'QPushButton {{ background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; color: {color}; padding: 2px 6px; font-size: 10px; }} QPushButton:checked {{ background: rgba(59,142,208,0.35); border-color: rgba(125,211,252,0.6); }} QPushButton:hover {{ border-color: rgba(125,211,252,0.4); }}')
+            btn.clicked.connect(lambda checked=False, k=tier_key: self._on_tier_clicked(k))
+            self._tier_buttons[tier_key] = btn
+            tier_layout.addWidget(btn)
+        tier_layout.addStretch()
+        layout.addWidget(self._tier_row)
         self._list = QListWidget()
         self._list.setStyleSheet(PICKER_LIST_STYLE)
         self._list.setMaximumHeight(100)
@@ -195,12 +236,49 @@ class SkillPicker(QWidget):
         self._search.textChanged.connect(self._on_search)
         self._search.returnPressed.connect(self._on_select)
         self._list.itemClicked.connect(self._on_select)
-    def _on_search(self, text):
+    def _on_search(self, text=None):
+        self._apply_filter()
+    def _update_mode_ui(self):
+        self._mode_btn.setChecked(self._search_desc_mode)
+        if self._search_desc_mode:
+            self._mode_btn.setText(t('skill_picker.search_by_effect') if t else 'Effect')
+            self._search.setPlaceholderText(t('skill_picker.search_effect_placeholder') if t else 'Search effects (e.g. Work Speed)...')
+        else:
+            self._mode_btn.setText(t('skill_picker.search_by_name') if t else 'Name')
+            self._search.setPlaceholderText('Search...')
+    def _toggle_search_mode(self):
+        self._search_desc_mode = self._mode_btn.isChecked()
+        SkillPicker._sticky_desc_mode = self._search_desc_mode
+        self._update_mode_ui()
+        self._apply_filter()
+    def _on_tier_clicked(self, tier_key):
+        self._tier_filter = tier_key
+        for k, btn in self._tier_buttons.items():
+            btn.setChecked(k == tier_key)
+        self._apply_filter()
+    def _tier_matches(self, rank):
+        tier = self._tier_filter
+        if tier is None or not isinstance(rank, int):
+            return True
+        if tier == 'common':
+            return rank == 1
+        if tier == 'rare':
+            return 2 <= rank <= 3
+        if tier == 'epic':
+            return rank >= 4
+        return rank <= 0
+    def _apply_filter(self):
+        text = self._search.text().lower()
         for i in range(self._list.count()):
             item = self._list.item(i)
             if not item.flags() & Qt.ItemIsSelectable:
                 continue
-            item.setHidden(text.lower() not in item.text().lower())
+            if self._search_desc_mode and item.data(Qt.UserRole + 6) is not None:
+                text_match = text in item.data(Qt.UserRole + 6)
+            else:
+                text_match = text in item.text().lower()
+            tier_match = self._tier_matches(item.data(Qt.UserRole + 1))
+            item.setHidden(not (text_match and tier_match))
     def _on_select(self):
         sel = self._list.currentItem()
         if not sel or not (sel.flags() & Qt.ItemIsSelectable):
@@ -215,6 +293,13 @@ class SkillPicker(QWidget):
         self._result = None
         self._search.clear()
         self._list.clear()
+        self._tier_filter = None
+        for k, btn in self._tier_buttons.items():
+            btn.setChecked(k is None)
+        self._tier_row.setVisible(not is_active)
+        self._mode_btn.setVisible(not is_active)
+        self._search_desc_mode = SkillPicker._sticky_desc_mode if not is_active else False
+        self._update_mode_ui()
         self._clear_item = QListWidgetItem(t('common.clear') if t else '-- clear --')
         self._list.addItem(self._clear_item)
         names = sorted(skill_map.values())
@@ -296,10 +381,12 @@ class SkillPicker(QWidget):
                 item.setData(Qt.UserRole + 4, bd)
                 item.setForeground(QColor(tc))
                 p_desc = dm.format_passive_description(p_info) if isinstance(p_info, dict) else ''
+                clean_desc = _clean_desc_for_tooltip(p_desc) if p_desc else ''
+                item.setData(Qt.UserRole + 6, clean_desc.lower())
                 tip_parts = [f'<b style="color:{tc}">{name}</b>', f"<i>{dm.rank_labels.get(rank, f'Rank {rank}')}</i>"]
-                if p_desc:
+                if clean_desc:
                     tip_parts.append('')
-                    tip_parts.append(_clean_desc_for_tooltip(p_desc))
+                    tip_parts.append(clean_desc)
                 item.setToolTip('<br>'.join(tip_parts))
                 self._list.addItem(item)
                 if skip_items and asset.lower() in skip_items:
