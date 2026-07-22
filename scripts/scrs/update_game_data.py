@@ -1144,6 +1144,9 @@ _ITEM_TYPE_A_DISPLAY = {
     'EPalItemTypeA::CaptureItemModifier': 'Sphere Modifier',
     'EPalItemTypeA::BuildProhibit': 'Building',
     'EPalItemTypeA::WeaponBullet': 'Ammo',
+    'EPalItemTypeA::Ammo': 'Ammo',
+    'EPalItemTypeA::Blueprint': 'Schematic',
+    'EPalItemTypeA::SpecialWeapon': 'Pal Sphere',
     'EPalItemTypeA::ArmorModelChange': 'Costume',
 }
 _ITEM_TYPE_B_DISPLAY = {

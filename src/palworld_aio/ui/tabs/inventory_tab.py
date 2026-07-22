@@ -1206,10 +1206,9 @@ class ItemPickerDialog(QDialog):
             list_item.setData(Qt.UserRole + 3, type_a)
             list_item.setData(Qt.UserRole + 4, item.get('description', ''))
             list_item.setData(Qt.UserRole + 5, item.get('type_b', ''))
-            type_a_display = item.get('type_a_display', '')
+            type_a_display = item.get('type_a_display', '') or 'Misc'
             list_item.setData(Qt.UserRole + 6, type_a_display)
-            if type_a_display:
-                type_displays.add(type_a_display)
+            type_displays.add(type_a_display)
             icon_path = item.get('icon', '')
             if icon_path:
                 pixmap = ItemData.get_item_icon(icon_path, QSize(48, 48))
