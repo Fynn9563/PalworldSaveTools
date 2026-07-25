@@ -3521,6 +3521,7 @@ class BaseInventoryTab(QWidget):
         dialog = ItemPickerDialog(self, filter_exclude_type_a='EPalItemTypeA::Essential')
         dialog.item_selected.connect(lambda item_id, qty: self._do_add_item(item_id, qty))
         dialog.exec()
+        self._refresh_container_ui()
     def _do_add_item(self, item_id: str, count: int):
         if item_id and count > 0:
             empty_slot_index = self.manager.find_empty_slot()
@@ -3528,7 +3529,6 @@ class BaseInventoryTab(QWidget):
                 self._show_warning(t('base_inventory.container_full') if t else 'Container is full!')
                 return
             if self.manager.add_item_to_slot(empty_slot_index, item_id, count):
-                self._refresh_container_ui()
                 self._update_container_stats()
                 self._trigger_auto_save()
             else:
@@ -3749,13 +3749,6 @@ class BaseInventoryTab(QWidget):
         wsd = constants.loaded_level_json['properties']['worldSaveData']['value']
         map_objs = wsd.get('MapObjectSaveData', {}).get('value', {}).get('values', [])
         base_norm = str(self._current_base_id).lower().replace('-', '')
-        from palworld_aio.inventory.base_inventory_manager import load_structure_data
-        _sd = load_structure_data()
-        new_hp = None
-        for s in _sd.get('structures', []):
-            if s.get('asset', '').lower() == new_asset.lower():
-                new_hp = s.get('hp')
-                break
         replaced = 0
         for obj in map_objs:
             oid = obj.get('MapObjectId', {}).get('value', '')
@@ -3768,8 +3761,6 @@ class BaseInventoryTab(QWidget):
             obj['MapObjectId']['value'] = new_asset
             hp_data = mr.get('hp')
             if isinstance(hp_data, dict) and 'current' in hp_data and 'max' in hp_data:
-                if new_hp is not None:
-                    hp_data['max'] = new_hp
                 hp_data['current'] = hp_data['max']
             replaced += 1
         if replaced:

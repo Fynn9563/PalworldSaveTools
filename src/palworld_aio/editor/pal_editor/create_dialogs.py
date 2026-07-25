@@ -253,6 +253,44 @@ def _show_learned_moves_dialog(raw, parent):
     learn_all_btn.setStyleSheet('QPushButton { background: rgba(16,185,129,0.15); color: #4ADE80; border: 1px solid rgba(16,185,129,0.3); border-radius: 4px; padding: 6px 20px; font-size: 12px; font-weight: 700; } QPushButton:hover { background: rgba(16,185,129,0.25); color: #FFFFFF; }')
     learn_all_btn.clicked.connect(lambda: (_learn_all_skills_raw(raw), _rebuild_list()))
     btn_row.addWidget(learn_all_btn)
+    add_skill_btn = QPushButton('+')
+    add_skill_btn.setToolTip(t('edit_pals.add_active_skill', default='Add Active Skill'))
+    add_skill_btn.setFixedSize(28, 28)
+    add_skill_btn.setStyleSheet('QPushButton { font-size: 14px; font-weight: 700; color: #7DD3FC; background: rgba(125,211,252,0.1); border: 1px solid rgba(125,211,252,0.25); border-radius: 4px; padding: 0px; } QPushButton:hover { background: rgba(125,211,252,0.2); color: #FFFFFF; }')
+    add_skill_btn.setCursor(Qt.PointingHandCursor)
+    def _add_skill_handler():
+        from palworld_aio.ui.dialogs.skill_picker import SkillPicker
+        picker = SkillPicker(dlg)
+        pal_asset = raw.get('CharacterID', {}).get('value', '') if isinstance(raw, dict) else ''
+        result = picker.pick(PalFrame._SKILLMAP, True, pal_asset=pal_asset, use_exclusions=False)
+        if result is None:
+            return
+        asset = None
+        for a, n in PalFrame._SKILLMAP.items():
+            if n == result:
+                asset = a
+                break
+        if not asset:
+            return
+        full = f'EPalWazaID::{asset}' if '::' not in asset else asset
+        mw_data = raw.get('MasteredWaza', {})
+        mw_list = mw_data.get('value', {}).get('values', []) if isinstance(mw_data, dict) else mw_data if isinstance(mw_data, list) else []
+        if not isinstance(mw_list, list):
+            mw_list = []
+        if full not in mw_list:
+            mw_list.append(full)
+            raw['MasteredWaza'] = {'array_type': 'EnumProperty', 'id': None, 'value': {'values': mw_list}, 'type': 'ArrayProperty'}
+        ew_data = raw.get('EquipWaza', {})
+        e_list = ew_data.get('value', {}).get('values', []) if isinstance(ew_data, dict) else ew_data if isinstance(ew_data, list) else []
+        if not isinstance(e_list, list):
+            e_list = []
+        filled = [s for s in e_list if s]
+        if len(filled) < 3 and full not in filled:
+            filled.append(full)
+            raw['EquipWaza'] = {'array_type': 'EnumProperty', 'id': None, 'value': {'values': filled[:3]}, 'type': 'ArrayProperty'}
+        _rebuild_list()
+    add_skill_btn.clicked.connect(_add_skill_handler)
+    btn_row.addWidget(add_skill_btn)
     btn_row.addStretch()
     close_btn = QPushButton('Close')
     close_btn.setStyleSheet('QPushButton { background: rgba(125,211,252,0.1); color: #7DD3FC; border: 1px solid rgba(125,211,252,0.25); border-radius: 4px; padding: 6px 20px; font-size: 12px; font-weight: 600; } QPushButton:hover { background: rgba(125,211,252,0.2); color: #FFFFFF; }')
@@ -442,6 +480,13 @@ class BulkSyncPalDialog(FramelessDialog):
                 target_raw['GotWorkSuitabilityAddRankList'] = copy.deepcopy(ws)
             else:
                 target_raw.pop('GotWorkSuitabilityAddRankList', None)
+            source_cid = extract_value(current_raw, 'CharacterID', '')
+            if source_cid.upper().startswith('BOSS_') and not extract_value(target_raw, 'CharacterID', '').upper().startswith('BOSS_'):
+                tgt_cid = extract_value(target_raw, 'CharacterID', '')
+                if tgt_cid and f'boss_{tgt_cid.lower()}' in _data._load_pal_base_data():
+                    target_raw['CharacterID'] = {'id': None, 'type': 'NameProperty', 'value': 'BOSS_' + tgt_cid}
+                else:
+                    target_raw.pop('IsRarePal', None)
             if 'EquipWaza' in target_raw:
                 ew = target_raw['EquipWaza']
                 ew_list = ew.get('value', {}).get('values', []) if isinstance(ew, dict) else ew if isinstance(ew, list) else []
@@ -681,6 +726,13 @@ class BulkSyncAllDialog(FramelessDialog):
                         ew['value']['values'] = normalized
                     else:
                         target_raw['EquipWaza'] = normalized
+            source_cid = extract_value(self._source_raw, 'CharacterID', '')
+            if source_cid.upper().startswith('BOSS_') and not extract_value(target_raw, 'CharacterID', '').upper().startswith('BOSS_'):
+                tgt_cid = extract_value(target_raw, 'CharacterID', '')
+                if tgt_cid and f'boss_{tgt_cid.lower()}' in _data._load_pal_base_data():
+                    target_raw['CharacterID'] = {'id': None, 'type': 'NameProperty', 'value': 'BOSS_' + tgt_cid}
+                else:
+                    target_raw.pop('IsRarePal', None)
             count += 1
         self.pal_editor.pal_info._refresh()
         self.pal_editor._update_party_slots()
@@ -839,8 +891,13 @@ class PalCreateDialog(QDialog):
         show_predator = self._show_predator_chk.isChecked() if hasattr(self, '_show_predator_chk') else False
         show_boss = self._show_boss_chk.isChecked() if hasattr(self, '_show_boss_chk') else False
         show_npc = self._show_npc_chk.isChecked() if hasattr(self, '_show_npc_chk') else True
-        self.pal_list.clear()
-        for asset, name in sorted(PalFrame._NAMEMAP.items(), key=lambda kv: (kv[1], kv[0])):
+        self.pal_list.setUpdatesEnabled(False)
+        self.pal_list.setItemDelegate(None)
+        while self.pal_list.count():
+            item = self.pal_list.takeItem(0)
+            self.pal_list.removeItemWidget(item)
+            del item
+        for asset, name in sorted(PalFrame._NAMEMAP.items(), key=lambda kv: (kv[1] or '', kv[0])):
             asset_lower = asset.lower()
             if search_text and search_text not in name.lower() and (search_text not in asset.lower()):
                 continue
@@ -885,6 +942,8 @@ class PalCreateDialog(QDialog):
             if elems:
                 li.setData(Qt.UserRole + 2, list(elems.keys())[:2])
             self.pal_list.addItem(li)
+        self.pal_list.setItemDelegate(_PalSlotDelegate(self.pal_list))
+        self.pal_list.setUpdatesEnabled(True)
     def _on_create(self):
         if not self.selected_pal['asset']:
             show_warning(self, 'Error', t('edit_pals.error_select_pal_type'))

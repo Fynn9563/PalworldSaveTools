@@ -1,8 +1,8 @@
 import os
 import json
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea, QLabel, QPushButton, QFrame, QDialog, QLineEdit, QListWidget, QListWidgetItem, QSpinBox, QMessageBox, QTabWidget, QSizePolicy, QAbstractItemView, QMenu, QToolTip, QListView, QProgressBar, QComboBox, QApplication, QInputDialog
-from PySide6.QtCore import Qt, QSize, Signal, QPoint, QTimer, QThread
-from PySide6.QtGui import QPixmap, QIcon, QFont, QCursor, QColor, QPainter, QPen
+from PySide6.QtCore import Qt, QSize, Signal, QPoint, QTimer, QThread, QEvent
+from PySide6.QtGui import QPixmap, QIcon, QFont, QCursor, QColor, QPainter, QPen, QIntValidator
 from PySide6.QtWidgets import QStyledItemDelegate
 from i18n import t
 from palworld_aio.ui.chrome.styles import DIALOG_STYLE as DARK_THEME_STYLE, STATS_PANEL_STYLE, MENU_STYLE, PICKER_BG_STYLE, PICKER_SEARCH_STYLE, PICKER_LIST_STYLE, wrap_tooltip_text, slot_full, slot_rarity, slot_selected, slot_multi_selected, CONTENT_PANEL_STYLE, SLOT_EMPTY_STYLE, SLOT_HOVER_STYLE, INPUT_DIALOG_STYLE
@@ -800,6 +800,495 @@ class StatsPanelWidget(QFrame):
         self.tp_spin.blockSignals(False)
         self.atp_spin.blockSignals(False)
         self._ability_status.setText('')
+class MissionPanelWidget(QFrame):
+    missions_changed = Signal()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._all_quest_ids = []
+        self._quest_map = {}
+        self._completed_set = set()
+        self._active_set = set()
+        self._player_uid = None
+        self._quest_rows = []
+        self._setup_ui()
+        self._load_quest_data()
+    def _load_quest_data(self):
+        try:
+            base_dir = constants.get_base_path()
+            fp = resource_path(base_dir, 'game_data', 'questdata.json')
+            with open(fp, encoding='utf-8') as f:
+                data = json.load(f)
+            quests = data.get('quests', [])
+            self._quest_map = {q['id']: q for q in quests}
+            self._all_quest_ids = [q['id'] for q in quests]
+        except Exception:
+            self._quest_map = {}
+            self._all_quest_ids = []
+    def _derive_name(self, qid):
+        q = self._quest_map.get(qid)
+        if q:
+            return q['name']
+        return qid.replace('_', ' ').strip()
+    def _derive_type(self, qid):
+        q = self._quest_map.get(qid)
+        if q:
+            return q['type']
+        if qid.startswith('Main_'): return 'Main'
+        if qid.startswith('Sub_'): return 'Sub'
+        if qid.startswith('Hidden_'): return 'Hidden'
+        return ''
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6); layout.setSpacing(4)
+        header = QHBoxLayout()
+        self._missions_title = QLabel(t('inventory.missions', default='Missions'))
+        self._missions_title.setStyleSheet('font-size: 11px; font-weight: bold; color: #fff;')
+        self._missions_title.setAlignment(Qt.AlignCenter)
+        header.addWidget(self._missions_title); header.addStretch()
+        self._sel_all = QPushButton(t('player_item.select_all', default='All'))
+        self._sel_all.setFixedHeight(20)
+        self._sel_all.setStyleSheet('QPushButton { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(74,222,128,0.2); color: #FFFFFF; }')
+        self._sel_all.setCursor(Qt.PointingHandCursor)
+        self._sel_all.clicked.connect(lambda: self._toggle_all(True))
+        header.addWidget(self._sel_all)
+        self._sel_none = QPushButton(t('player_item.deselect_all', default='None'))
+        self._sel_none.setFixedHeight(20)
+        self._sel_none.setStyleSheet('QPushButton { background: rgba(251,113,133,0.12); color: #FB7185; border: 1px solid rgba(251,113,133,0.2); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(251,113,133,0.2); color: #FFFFFF; }')
+        self._sel_none.setCursor(Qt.PointingHandCursor)
+        self._sel_none.clicked.connect(lambda: self._toggle_all(False))
+        header.addWidget(self._sel_none)
+        layout.addLayout(header)
+        btn_row = QHBoxLayout()
+        self.complete_btn = QPushButton(t('inventory.missions_complete', default='Complete Selected'))
+        self.complete_btn.setStyleSheet('QPushButton { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); border-radius: 6px; padding: 4px 8px; font-weight: 600; font-size: 10px; } QPushButton:hover { background: rgba(74,222,128,0.25); border-color: rgba(74,222,128,0.5); color: #FFFFFF; }')
+        self.complete_btn.setCursor(Qt.PointingHandCursor)
+        self.complete_btn.clicked.connect(self._complete_selected)
+        btn_row.addWidget(self.complete_btn)
+        self.reset_btn = QPushButton(t('inventory.missions_reset', default='Reset Selected'))
+        self.reset_btn.setStyleSheet('QPushButton { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); border-radius: 6px; padding: 4px 8px; font-weight: 600; font-size: 10px; } QPushButton:hover { background: rgba(251,191,36,0.25); border-color: rgba(251,191,36,0.5); color: #FFFFFF; }')
+        self.reset_btn.setCursor(Qt.PointingHandCursor)
+        self.reset_btn.clicked.connect(self._reset_selected)
+        btn_row.addWidget(self.reset_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet('QScrollArea { border: none; background: transparent; }')
+        scroll_content = QWidget()
+        self._scroll_layout = QVBoxLayout(scroll_content)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0); self._scroll_layout.setSpacing(2)
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
+    def refresh_labels(self):
+        self._missions_title.setText(t('inventory.missions', default='Missions'))
+        self._sel_all.setText(t('player_item.select_all', default='All'))
+        self._sel_none.setText(t('player_item.deselect_all', default='None'))
+        self.complete_btn.setText(t('inventory.missions_complete', default='Complete Selected'))
+        self.reset_btn.setText(t('inventory.missions_reset', default='Reset Selected'))
+        self._rebuild_list()
+    def _uid_filename(self, uid):
+        return str(uid).replace('-', '').upper()
+    def load_player(self, uid):
+        self._player_uid = uid
+        self._active_set = set(); self._completed_set = set()
+        try:
+            from palworld_aio.utils import sav_to_gvasfile
+            save_path = os.path.join(constants.current_save_path, 'Players', f'{self._uid_filename(uid)}.sav')
+            if not os.path.exists(save_path):
+                self._rebuild_list()
+                return
+            gvas = sav_to_gvasfile(save_path)
+            sd = gvas.properties.get('SaveData', {}).get('value', {})
+            completed = sd.get('CompletedQuestArray_FullRelease', {}).get('value', {}).get('values', [])
+            if isinstance(completed, list):
+                self._completed_set = {str(v) for v in completed}
+            active_raw = sd.get('OrderedQuestArray_FullRelease', {}).get('value', {}).get('values', [])
+            if isinstance(active_raw, list):
+                for entry in active_raw:
+                    if isinstance(entry, dict):
+                        qn = entry.get('QuestName', {}).get('value', '')
+                        if qn:
+                            self._active_set.add(str(qn))
+        except Exception:
+            pass
+        self._rebuild_list()
+    def clear(self):
+        self._player_uid = None; self._active_set = set(); self._completed_set = set()
+        self._rebuild_list()
+    def _status(self, qid):
+        if qid in self._completed_set:
+            return 'completed'
+        if qid in self._active_set:
+            return 'active'
+        return 'not_started'
+    def _rebuild_list(self):
+        for i in reversed(range(self._scroll_layout.count())):
+            w = self._scroll_layout.itemAt(i).widget()
+            if w: w.deleteLater()
+        self._quest_rows = []
+        groups = [('not_started', t('inventory.missions_not_started', default='Not Started'), '#888'),
+                  ('active', t('inventory.missions_active', default='Active'), '#4ade80'),
+                  ('completed', t('inventory.missions_completed', default='Completed'), '#555')]
+        for status_key, label_text, color in groups:
+            items = [qid for qid in self._all_quest_ids if self._status(qid) == status_key]
+            if not items:
+                continue
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(f'font-size: 10px; font-weight: bold; color: {color}; padding: 4px 0;')
+            self._scroll_layout.addWidget(lbl)
+            for qid in items:
+                self._scroll_layout.addWidget(self._make_quest_row(qid))
+        self._scroll_layout.addStretch()
+    def _make_quest_row(self, qid):
+        row = QFrame(); row.setFixedHeight(24)
+        row.setStyleSheet('QFrame:hover { background: rgba(255,255,255,0.03); }')
+        rl = QHBoxLayout(row); rl.setContentsMargins(4, 0, 4, 0); rl.setSpacing(4)
+        cb = ToggleCheckBtn('')
+        rl.addWidget(cb)
+        qtype = self._derive_type(qid)
+        type_colors = {'Main': '#fbbf24', 'Sub': '#7dd3fc', 'Hidden': '#a78bfa'}
+        tc = type_colors.get(qtype, '#888')
+        type_lbl = QLabel(qtype); type_lbl.setFixedWidth(45)
+        type_lbl.setStyleSheet(f'font-size: 8px; font-weight: bold; color: {tc};')
+        rl.addWidget(type_lbl)
+        name = self._derive_name(qid)
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet('font-size: 10px; color: #e2e8f0;')
+        rl.addWidget(name_lbl, 1)
+        id_lbl = QLabel(qid); id_lbl.setStyleSheet('font-size: 8px; color: #555;')
+        rl.addWidget(id_lbl)
+        self._quest_rows.append({'row': row, 'qid': qid, 'cb': cb})
+        return row
+    def _toggle_all(self, checked):
+        for entry in self._quest_rows:
+            entry['cb'].setChecked(checked)
+    def _get_selected_qids(self):
+        return [entry['qid'] for entry in self._quest_rows if entry['cb'].isChecked()]
+    def _gvas_for_player(self):
+        from palworld_aio.utils import sav_to_gvasfile
+        save_path = os.path.join(constants.current_save_path, 'Players', f'{self._uid_filename(self._player_uid)}.sav')
+        if not os.path.exists(save_path): return None, None
+        gvas = sav_to_gvasfile(save_path)
+        sd = gvas.properties.get('SaveData', {}).get('value', {})
+        return gvas, sd
+    def _save(self, gvas):
+        from palworld_aio.utils import gvasfile_to_sav
+        save_path = os.path.join(constants.current_save_path, 'Players', f'{self._uid_filename(self._player_uid)}.sav')
+        gvasfile_to_sav(gvas, save_path)
+    def _ensure_completed_array(self, sd):
+        if 'CompletedQuestArray_FullRelease' not in sd:
+            sd['CompletedQuestArray_FullRelease'] = {
+                'array_type': 'NameProperty',
+                'id': None,
+                'value': {'values': []},
+                'type': 'ArrayProperty',
+            }
+        return sd['CompletedQuestArray_FullRelease']['value']['values']
+    def _ensure_ordered_active_ids(self, sd):
+        if 'OrderedQuestArray_FullRelease' not in sd:
+            sd['OrderedQuestArray_FullRelease'] = {
+                'array_type': 'StructProperty',
+                'id': None,
+                'value': {
+                    'prop_name': 'OrderedQuestArray_FullRelease',
+                    'prop_type': 'StructProperty',
+                    'values': [],
+                    'type_name': 'PalOrderedQuestSaveData',
+                    'id': '00000000-0000-0000-0000-000000000000',
+                },
+                'type': 'ArrayProperty',
+            }
+        active_ids = set()
+        for e in sd['OrderedQuestArray_FullRelease']['value']['values']:
+            if isinstance(e, dict):
+                qn = e.get('QuestName', {}).get('value', '')
+                if qn:
+                    active_ids.add(str(qn))
+        return active_ids
+    def _complete_selected(self):
+        qids = self._get_selected_qids()
+        if not qids: return
+        gvas, sd = self._gvas_for_player()
+        if sd is None: return
+        completed_list = self._ensure_completed_array(sd)
+        active_ids = self._ensure_ordered_active_ids(sd)
+        new_active = [e for e in sd['OrderedQuestArray_FullRelease']['value']['values']
+                      if isinstance(e, dict) and e.get('QuestName', {}).get('value', '') not in qids]
+        sd['OrderedQuestArray_FullRelease']['value']['values'] = new_active
+        for qid in qids:
+            if qid not in completed_list:
+                completed_list.append(qid)
+        self._save(gvas)
+        self._completed_set.update(qids)
+        self._active_set.difference_update(qids)
+        self._rebuild_list()
+    def _reset_selected(self):
+        qids = self._get_selected_qids()
+        to_reset = [q for q in qids if q in self._completed_set]
+        if not to_reset: return
+        gvas, sd = self._gvas_for_player()
+        if sd is None: return
+        completed_list = self._ensure_completed_array(sd)
+        sd['CompletedQuestArray_FullRelease']['value']['values'] = [q for q in completed_list if q not in to_reset]
+        self._save(gvas)
+        self._completed_set.difference_update(to_reset)
+        self._rebuild_list()
+class TechnologyPanelWidget(QFrame):
+    tech_changed = Signal()
+    BUTTON_SIZE = 76
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._player_uid = None
+        self._tech_data = []
+        self._unlocked = set()
+        self._tp_value = 0; self._atp_value = 0
+        self._tech_buttons = {}
+        self._setup_ui()
+        self._load_tech_data()
+    def _load_tech_data(self):
+        try:
+            base_dir = constants.get_base_path()
+            fp = resource_path(base_dir, 'game_data', 'world.json')
+            with open(fp, encoding='utf-8') as f:
+                data = json.load(f)
+            self._tech_data = data.get('technology', [])
+        except Exception:
+            self._tech_data = []
+    def _grouped_techs(self):
+        groups = {}
+        for t in self._tech_data:
+            lc = t.get('level_cap', 0)
+            bt = t.get('is_boss_tech', False)
+            if lc not in groups:
+                groups[lc] = {'regular': [], 'ancient': None}
+            if bt:
+                groups[lc]['ancient'] = t
+            else:
+                groups[lc]['regular'].append(t)
+        return dict(sorted(groups.items()))
+    def _uid_filename(self, uid):
+        return str(uid).replace('-', '').upper()
+    def load_player(self, uid):
+        self._player_uid = uid
+        self._unlocked = set(); self._tp_value = 0; self._atp_value = 0
+        try:
+            from palworld_aio.utils import sav_to_gvasfile
+            save_path = os.path.join(constants.current_save_path, 'Players', f'{self._uid_filename(uid)}.sav')
+            if not os.path.exists(save_path):
+                self._rebuild(); return
+            gvas = sav_to_gvasfile(save_path)
+            sd = gvas.properties.get('SaveData', {}).get('value', {})
+            uv = sd.get('UnlockedRecipeTechnologyNames', {}).get('value', {}).get('values', [])
+            if isinstance(uv, list):
+                self._unlocked = {str(v) for v in uv}
+            self._tp_value = int(sd.get('TechnologyPoint', {}).get('value', 0))
+            self._atp_value = int(sd.get('bossTechnologyPoint', {}).get('value', 0))
+        except Exception:
+            pass
+        self._rebuild()
+    def clear(self):
+        self._player_uid = None; self._unlocked = set()
+        self._tp_value = 0; self._atp_value = 0
+        self._rebuild()
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            asset = getattr(obj, '_tech_asset', None)
+            if asset:
+                self._toggle_tech(asset)
+                return True
+        return super().eventFilter(obj, event)
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6); layout.setSpacing(4)
+        top = QHBoxLayout()
+        self._tp_label = QLabel('Tech Points')
+        self._tp_label.setStyleSheet('font-size: 10px; font-weight: bold; color: #7dd3fc;')
+        top.addWidget(self._tp_label)
+        self._tp_spin = QSpinBox()
+        self._tp_spin.setRange(0, 9999999); self._tp_spin.setFixedWidth(100)
+        self._tp_spin.valueChanged.connect(self._save_tp)
+        top.addWidget(self._tp_spin)
+        top.addSpacing(16)
+        self._atp_label = QLabel('Ancient Tech Points')
+        self._atp_label.setStyleSheet('font-size: 10px; font-weight: bold; color: #a78bfa;')
+        top.addWidget(self._atp_label)
+        self._atp_spin = QSpinBox()
+        self._atp_spin.setRange(0, 9999999); self._atp_spin.setFixedWidth(100)
+        self._atp_spin.valueChanged.connect(self._save_atp)
+        top.addWidget(self._atp_spin)
+        top.addStretch()
+        self._sel_all_btn = QPushButton(t('player_technology.select_all', default='Select All'))
+        self._sel_all_btn.setFixedHeight(22)
+        self._sel_all_btn.setStyleSheet('QPushButton { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(74,222,128,0.2); color: #FFFFFF; }')
+        self._sel_all_btn.setCursor(Qt.PointingHandCursor)
+        self._sel_all_btn.clicked.connect(self._select_all)
+        top.addWidget(self._sel_all_btn)
+        self._desel_all_btn = QPushButton(t('player_technology.deselect_all', default='Deselect All'))
+        self._desel_all_btn.setFixedHeight(22)
+        self._desel_all_btn.setStyleSheet('QPushButton { background: rgba(251,113,133,0.12); color: #FB7185; border: 1px solid rgba(251,113,133,0.2); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(251,113,133,0.2); color: #FFFFFF; }')
+        self._desel_all_btn.setCursor(Qt.PointingHandCursor)
+        self._desel_all_btn.clicked.connect(self._deselect_all)
+        top.addWidget(self._desel_all_btn)
+        self._apply_btn = QPushButton(t('button.apply', default='Apply'))
+        self._apply_btn.setFixedHeight(22)
+        self._apply_btn.setStyleSheet('QPushButton { background: rgba(125,211,252,0.12); color: #7DD3FC; border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(125,211,252,0.2); color: #FFFFFF; }')
+        self._apply_btn.setCursor(Qt.PointingHandCursor)
+        self._apply_btn.clicked.connect(self._apply_changes)
+        top.addWidget(self._apply_btn)
+        layout.addLayout(top)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet('QScrollArea { border: none; background: transparent; }')
+        self._scroll_ct = QWidget()
+        self._scroll_layout = QVBoxLayout(self._scroll_ct)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0); self._scroll_layout.setSpacing(6)
+        self._scroll_layout.addStretch()
+        scroll.setWidget(self._scroll_ct)
+        layout.addWidget(scroll, 1)
+    def _apply_tech_style(self, frame, asset):
+        unlocked = asset in self._unlocked
+        fg = '#e2e8f0' if unlocked else '#555'
+        bg = 'rgba(125,211,252,0.08)' if unlocked else 'rgba(255,255,255,0.03)'
+        bd = '1px solid rgba(125,211,252,0.3)' if unlocked else '1px solid rgba(255,255,255,0.06)'
+        frame.setStyleSheet(f'QFrame {{ background: {bg}; border: {bd}; border-radius: 4px; }} QFrame:hover {{ background: rgba(125,211,252,0.12); }}')
+        for child in frame.findChildren(QLabel):
+            obj_name = child.objectName()
+            if obj_name == 'cost_label':
+                child.setVisible(not unlocked)
+            elif obj_name == 'name_label':
+                child.setStyleSheet(f'font-size: 7px; color: {fg}; background: transparent;')
+    def _rebuild(self):
+        self._tech_buttons.clear()
+        while self._scroll_layout.count():
+            item = self._scroll_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        self._tp_spin.blockSignals(True); self._atp_spin.blockSignals(True)
+        self._tp_spin.setValue(self._tp_value); self._atp_spin.setValue(self._atp_value)
+        self._tp_spin.blockSignals(False); self._atp_spin.blockSignals(False)
+        groups = self._grouped_techs()
+        for lc, g in groups.items():
+            row_w = QWidget()
+            row_w.setStyleSheet('QWidget:hover { background: rgba(255,255,255,0.02); }')
+            rl = QHBoxLayout(row_w); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(4)
+            badge = QLabel(str(lc))
+            badge.setFixedSize(36, self.BUTTON_SIZE)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet('font-size: 13px; font-weight: 700; color: #fbbf24; border: 2px solid rgba(251,191,36,0.3); border-radius: 6px; background: rgba(251,191,36,0.06);')
+            rl.addWidget(badge)
+            for tech in g['regular']:
+                rl.addWidget(self._make_tech_button(tech))
+            for _ in range(max(0, 8 - len(g['regular']))):
+                ph = QWidget(); ph.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE); rl.addWidget(ph)
+            div = QFrame()
+            div.setFrameShape(QFrame.VLine)
+            div.setStyleSheet('background: rgba(167,139,250,0.3); max-width: 1px;')
+            div.setFixedWidth(1)
+            rl.addWidget(div)
+            if g['ancient']:
+                rl.addWidget(self._make_tech_button(g['ancient']))
+            else:
+                ph = QWidget()
+                ph.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+                ph.setStyleSheet('background: rgba(167,139,250,0.04); border: 1px dashed rgba(167,139,250,0.1); border-radius: 4px;')
+                rl.addWidget(ph)
+            rl.addStretch()
+            self._scroll_layout.addWidget(row_w)
+        self._scroll_layout.addStretch()
+        self._scroll_ct.update()
+    def _make_tech_button(self, tech):
+        asset = tech.get('asset', '')
+        frame = QFrame()
+        frame.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        frame.setCursor(Qt.PointingHandCursor)
+        frame._tech_asset = asset
+        frame.installEventFilter(self)
+        name = tech.get('name', '')
+        tip = f'<b>{name}</b><br>({asset})'
+        tech_desc = tech.get('description', '')
+        if tech_desc:
+            cleaned = _clean_desc_for_tooltip(tech_desc)
+            tip += f'<br><br>{wrap_tooltip_text(cleaned)}'
+        tip += f'<br><br>Level {tech.get("level_cap",0)}  Cost: {tech.get("cost",0)}'
+        frame.setToolTip(tip)
+        vl = QVBoxLayout(frame); vl.setContentsMargins(2, 2, 2, 2); vl.setSpacing(0)
+        icon = tech.get('icon', '')
+        if icon:
+            base_dir = constants.get_base_path()
+            fp = resource_path(base_dir, 'game_data', icon.lstrip('/'))
+            if os.path.exists(fp):
+                pix = QPixmap(fp)
+                il = QLabel()
+                il.setPixmap(pix.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                il.setAlignment(Qt.AlignCenter)
+                vl.addWidget(il, 1)
+        cl = QLabel(str(tech.get('cost', 0)))
+        cl.setObjectName('cost_label')
+        cl.setAlignment(Qt.AlignCenter)
+        cl.setStyleSheet('font-size: 9px; font-weight: 700; color: #fbbf24; background: transparent;')
+        vl.addWidget(cl)
+        nl = QLabel(tech.get('name', ''))
+        nl.setObjectName('name_label')
+        nl.setAlignment(Qt.AlignCenter)
+        vl.addWidget(nl)
+        self._apply_tech_style(frame, asset)
+        self._tech_buttons[asset] = frame
+        return frame
+    def _toggle_tech(self, asset):
+        if asset in self._unlocked:
+            self._unlocked.discard(asset)
+        else:
+            self._unlocked.add(asset)
+        frame = self._tech_buttons.get(asset)
+        if frame:
+            self._apply_tech_style(frame, asset)
+    def _save_tp(self, val):
+        if not self._player_uid: return
+        from palworld_aio.managers.player_manager import set_player_tech_points
+        set_player_tech_points(self._player_uid, val)
+    def _save_atp(self, val):
+        if not self._player_uid: return
+        from palworld_aio.managers.player_manager import set_player_boss_tech_points
+        set_player_boss_tech_points(self._player_uid, val)
+    def _select_all(self):
+        self._unlocked = {t.get('asset', '') for t in self._tech_data if t.get('asset')}
+        for asset, frame in self._tech_buttons.items():
+            self._apply_tech_style(frame, asset)
+    def _deselect_all(self):
+        self._unlocked.clear()
+        for asset, frame in self._tech_buttons.items():
+            self._apply_tech_style(frame, asset)
+    def _apply_changes(self):
+        if not self._player_uid: return
+        from palworld_aio.utils import sav_to_gvasfile, gvasfile_to_sav
+        save_path = os.path.join(constants.current_save_path, 'Players', f'{self._uid_filename(self._player_uid)}.sav')
+        try:
+            gvas = sav_to_gvasfile(save_path)
+            sd = gvas.properties.get('SaveData', {}).get('value', {})
+            uv = sd.setdefault('UnlockedRecipeTechnologyNames', {})
+            uv_val = uv.setdefault('value', {}); uv_list = uv_val.setdefault('values', [])
+            if not isinstance(uv_list, list): return
+            uv_list[:] = list(self._unlocked)
+            if 'array_type' not in uv:
+                uv['array_type'] = 'NameProperty'; uv['type'] = 'ArrayProperty'; uv['id'] = None
+            if 'TechnologyPoint' not in sd:
+                sd['TechnologyPoint'] = {'id': None, 'value': 0, 'type': 'IntProperty'}
+            sd['TechnologyPoint']['value'] = self._tp_spin.value()
+            if 'bossTechnologyPoint' not in sd:
+                sd['bossTechnologyPoint'] = {'id': None, 'value': 0, 'type': 'IntProperty'}
+            sd['bossTechnologyPoint']['value'] = self._atp_spin.value()
+            gvasfile_to_sav(gvas, save_path)
+            self.tech_changed.emit()
+        except Exception:
+            pass
+    def refresh_labels(self):
+        self._tp_label.setText(t('player.tech_points', default='Tech Points'))
+        self._atp_label.setText(t('player.boss_tech_points', default='Ancient Tech Points'))
+        self._sel_all_btn.setText(t('player_technology.select_all', default='Select All'))
+        self._desel_all_btn.setText(t('player_technology.deselect_all', default='Deselect All'))
+        self._apply_btn.setText(t('button.apply', default='Apply'))
 class InventoryGridWidget(QWidget):
     item_added = Signal(int, str, int)
     item_removed = Signal(int, int)
@@ -917,10 +1406,15 @@ class InventoryGridWidget(QWidget):
         if max_slots == self.max_visible_slots and self.slots:
             return
         self.max_visible_slots = max_slots
-        for slot in self.slots.values():
-            slot.deleteLater()
-        self.slots.clear()
-        for i in range(max_slots):
+        current_count = len(self.slots)
+        if max_slots < current_count:
+            for i in range(max_slots, current_count):
+                slot = self.slots.pop(i)
+                self.grid_layout.removeWidget(slot)
+                slot.setParent(None)
+                slot.hide()
+                slot.deleteLater()
+        for i in range(len(self.slots), max_slots):
             row = i // GRID_COLS
             col = i % GRID_COLS
             slot = ItemSlotWidget(i, self.container_type)
@@ -1145,14 +1639,15 @@ class ItemPickerDialog(QDialog):
         layout.addWidget(self.desc_label)
         qty_layout = QHBoxLayout()
         self.qty_label = QLabel(t('inventory.quantity', default='Quantity:'))
-        self.qty_spin = QSpinBox()
-        self.qty_spin.setRange(1, constants.MAX_QUANTITY)
-        self.qty_spin.setValue(1)
+        self.qty_input = QLineEdit('1')
+        self.qty_input.setValidator(QIntValidator(1, constants.MAX_QUANTITY))
+        self.qty_input.setFixedWidth(100)
+        self.qty_input.setStyleSheet('QLineEdit { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; padding: 2px 6px; }')
         qty_layout.addWidget(self.qty_label)
-        qty_layout.addWidget(self.qty_spin)
+        qty_layout.addWidget(self.qty_input)
         if self._hide_quantity:
             self.qty_label.setVisible(False)
-            self.qty_spin.setVisible(False)
+            self.qty_input.setVisible(False)
         qty_layout.addStretch()
         add_btn = QPushButton(t('button.add', default='Add'))
         add_btn.clicked.connect(self._add_item)
@@ -1269,11 +1764,9 @@ class ItemPickerDialog(QDialog):
         is_singleton = type_a in SINGLETON_TYPE_A and type_b != 'EPalItemTypeB::WeaponThrowObject'
         if not self._hide_quantity:
             self.qty_label.setVisible(not is_singleton)
-            self.qty_spin.setVisible(not is_singleton)
+            self.qty_input.setVisible(not is_singleton)
             if is_singleton:
-                self.qty_spin.setValue(1)
-            item_id = self.selected_item or ''
-            self.qty_spin.setMaximum(ItemData.get_effective_max_stack(item_id))
+                self.qty_input.setText('1')
         if item_desc:
             self.desc_label.setText(_clean_desc_for_tooltip(item_desc))
             self.desc_label.setVisible(True)
@@ -1284,7 +1777,11 @@ class ItemPickerDialog(QDialog):
         self._add_item()
     def _add_item(self):
         if self.selected_item:
-            self.item_selected.emit(self.selected_item, self.qty_spin.value())
+            try:
+                qty = int(self.qty_input.text())
+            except ValueError:
+                qty = 1
+            self.item_selected.emit(self.selected_item, qty)
             self.accept()
 class PlayerInventoryTab(QWidget):
     unlock_all_map_requested = Signal(list)
@@ -1392,6 +1889,23 @@ class PlayerInventoryTab(QWidget):
         self.stats_panel.stats_changed.connect(self._on_stats_changed)
         stats_tab_layout.addWidget(self.stats_panel)
         self.inv_tabs.addTab(self.stats_tab, t('inventory.stats', default='Stats'))
+        self.missions_tab = QWidget()
+        missions_tab_layout = QHBoxLayout(self.missions_tab)
+        missions_tab_layout.setContentsMargins(6, 6, 6, 6)
+        missions_tab_layout.setSpacing(10)
+        self.missions_panel = MissionPanelWidget()
+        self.missions_panel.missions_changed.connect(self._on_missions_changed)
+        missions_tab_layout.addWidget(self.missions_panel)
+        self.inv_tabs.addTab(self.missions_tab, t('inventory.missions', default='Missions'))
+        self.tech_tab = QWidget()
+        tech_tab_layout = QHBoxLayout(self.tech_tab)
+        tech_tab_layout.setContentsMargins(6, 6, 6, 6)
+        tech_tab_layout.setSpacing(10)
+        self.tech_panel = TechnologyPanelWidget()
+        self.tech_panel.tech_changed.connect(self._on_tech_changed)
+        tech_tab_layout.addWidget(self.tech_panel)
+        self.inv_tabs.addTab(self.tech_tab, t('inventory.technology', default='Technology'))
+        self.inv_tabs.currentChanged.connect(self._on_tab_changed)
         inner_content.addWidget(self.inv_tabs, 2)
         equip_wrapper = QWidget()
         self.equip_wrapper = equip_wrapper
@@ -1542,6 +2056,21 @@ class PlayerInventoryTab(QWidget):
         self._update_player_dropdown_level()
         if hasattr(self.parent_window, 'refresh_all'):
             self.parent_window.refresh_all()
+    def _on_missions_changed(self):
+        if not self.current_player_uid:
+            return
+        if hasattr(self.parent_window, 'refresh_all'):
+            self.parent_window.refresh_all()
+    def _on_tech_changed(self):
+        pass
+    def _on_tab_changed(self, idx):
+        if not self.current_player_uid:
+            return
+        uid = self.current_player_uid
+        if idx == 3:
+            self.missions_panel.load_player(uid)
+        elif idx == 4:
+            self.tech_panel.load_player(uid)
     def refresh_players(self):
         self._player_list = []
         self.current_player_uid = None
@@ -1652,6 +2181,8 @@ class PlayerInventoryTab(QWidget):
         self.main_grid.load_items([])
         self.key_grid.load_items([])
         self.stats_panel.clear()
+        self.missions_panel.clear()
+        self.tech_panel.clear()
         for slot_widget in self.equip_slots.values():
             slot_widget.clear_item()
     def _on_add_all_effigies(self):
@@ -1871,9 +2402,9 @@ class PlayerInventoryTab(QWidget):
                 _consolidate_container_slots(key_c, 'key', SINGLETON_TYPE_A)
                 self._update_raw_save_data('key', key_c)
             self.inventory.save()
-            self._refresh_display()
         dlg = InventoryLoadoutDialog(self, _get_items, _apply_items, loadouts_path=_INV_LOADOUTS_PATH)
         dlg.exec()
+        self._refresh_display()
     def _on_sort_requested(self):
         if not self.inventory:
             return
@@ -1953,9 +2484,9 @@ class PlayerInventoryTab(QWidget):
                 container.update_slots([s for s in container.slots if s.get('slot_index') != slot_idx])
                 container._standardized_container.add_item(equip_item['id'], equip_item.get('qty', 1), slot_index=slot_idx)
             self.inventory.save()
-            self._refresh_display()
         dlg = InventoryLoadoutDialog(self, _get_equipment, _apply_equipment, title=t('inventory.equip_loadouts_title', default='Equipment Loadouts'), loadouts_path=_EQ_LOADOUTS_PATH, key_prefix='inventory.equip')
         dlg.exec()
+        self._refresh_display()
     def _clear_all_inventory(self):
         if not self.current_player_uid:
             QMessageBox.warning(self, t('inventory.select_player', default='Select Player...'), t('inventory.select_player_first', default='Please select a player first.'))
@@ -2042,7 +2573,7 @@ class PlayerInventoryTab(QWidget):
             ft_count = len(json.load(open(ft_path, 'r'))) if os.path.exists(ft_path) else 0
         except:
             ft_count = 0
-        reply = self._themed_message_box(QMessageBox.Question, t('inventory.unlock_all_map_confirm.title', default='Unlock All Fast Travel'), t('inventory.unlock_all_map_confirm.msg', count=ft_count, default=f'Unlock all {ft_count} fast travel points for 1 player?'), QMessageBox.Yes | QMessageBox.No)
+        reply = self._themed_message_box(QMessageBox.Question, t('inventory.unlock_all_map_confirm.title', default='Unlock All Fast Travel'), t('inventory.unlock_all_map_confirm.msg', count=1, points=ft_count, players=1, default=f'Unlock all {ft_count} fast travel points for 1 player?'), QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.unlock_all_map_requested.emit([self.current_player_uid])
     def _update_stats(self):
@@ -2285,6 +2816,7 @@ class PlayerInventoryTab(QWidget):
         dialog = ItemPickerDialog(self, filter_type_a=slot_filter.get('type_a'), filter_type_b=slot_filter.get('type_b'), hide_quantity=slot_type not in ('food', 'weapon'), exclude_assets=exclude_assets)
         dialog.item_selected.connect(lambda item_id, qty: self._do_add_to_equip_slot(slot_name, container_type, item_id, qty))
         dialog.exec()
+        self._refresh_display()
     def _do_add_to_equip_slot(self, slot_name: str, container_type: str, item_id: str, quantity: int):
         if not self.inventory:
             return
@@ -2297,7 +2829,6 @@ class PlayerInventoryTab(QWidget):
         container.update_slots([s for s in container.slots if s.get('slot_index') != slot_index] + [new_slot])
         self._update_raw_save_data(container_type, container)
         self.inventory.save()
-        self._refresh_display()
     def _edit_equip_item(self, slot_name: str, current_item: dict):
         current_qty = current_item.get('stack_count', 1)
         item_id = current_item.get('item_id', '')
@@ -2357,6 +2888,7 @@ class PlayerInventoryTab(QWidget):
             dialog = ItemPickerDialog(self, filter_exclude_type_a='EPalItemTypeA::Essential')
         dialog.item_selected.connect(self._add_item_to_inventory)
         dialog.exec()
+        self._refresh_display()
     def _add_item_to_inventory(self, item_id: str, quantity: int):
         if not self.inventory:
             return
@@ -2370,7 +2902,6 @@ class PlayerInventoryTab(QWidget):
         else:
             slot_index = None
         self.inventory.add_item(actual_container_type, item_id, quantity, slot_index=slot_index)
-        self._refresh_display()
     def _update_raw_save_data(self, container_type: str, container):
         if not self.inventory or not container:
             return
@@ -2526,8 +3057,8 @@ class PlayerInventoryTab(QWidget):
         char_map = wsd.get('CharacterSaveParameterMap', {}).get('value', [])
         print(f'[inner] setup done, char_map len={len(char_map)}: {__import__("time").time() - _t0:.3f}s')
         from palworld_aio.managers.player_manager import set_player_level
-        set_player_level(player_uid, new_level)
-        print(f'[inner] set_player_level done: {__import__("time").time() - _t0:.3f}s')
+        result = set_player_level(player_uid, new_level)
+        print(f'[inner] set_player_level result={result}: {__import__("time").time() - _t0:.3f}s')
         stat_map_reverse = {'hp': '最大HP', 'stamina': '最大SP', 'attack': '攻撃力', 'defense': '防御力', 'work_speed': '作業速度', 'weight': '所持重量'}
         for entry in char_map:
             raw = entry.get('value', {}).get('RawData', {}).get('value', {})
@@ -2555,7 +3086,7 @@ class PlayerInventoryTab(QWidget):
                                     if 'StatusPoint' in status_item:
                                         status_item['StatusPoint']['value'] = stat_point
                                     else:
-                                        status_item['StatusPoint'] = {'value': stat_point}
+                                        status_item['StatusPoint'] = {'id': None, 'type': 'IntProperty', 'value': stat_point}
                                     break
                 print(f'[inner] done: {__import__("time").time() - _t0:.3f}s')
                 return
@@ -2641,6 +3172,10 @@ class PlayerInventoryTab(QWidget):
         self.inv_tabs.setTabText(0, t('inventory.main', default='Inventory'))
         self.inv_tabs.setTabText(1, t('inventory.key_items', default='Key Items'))
         self.inv_tabs.setTabText(2, t('inventory.stats', default='Stats'))
+        self.inv_tabs.setTabText(3, t('inventory.missions', default='Missions'))
+        self.inv_tabs.setTabText(4, t('inventory.technology', default='Technology'))
+        self.missions_panel.refresh_labels()
+        self.tech_panel.refresh_labels()
         if not self.current_player_uid:
             self.player_select_btn.setText(t('inventory.select_player', default='Select Player...'))
         self.equip_title.setText(t('inventory.equipment', default='Equipment'))
@@ -2667,11 +3202,12 @@ class QuantityDialog(QDialog):
         self.setFixedSize(280, 120)
         self.setStyleSheet(DARK_THEME_STYLE)
         layout = QVBoxLayout(self)
-        self.spin_box = QSpinBox()
-        limit = max_val if max_val is not None else constants.MAX_QUANTITY
-        self.spin_box.setRange(1, max(limit, current_qty))
-        self.spin_box.setValue(current_qty)
-        layout.addWidget(self.spin_box)
+        max_q = max_val if max_val is not None else constants.MAX_QUANTITY
+        max_q = max(max_q, current_qty)
+        self.qty_input = QLineEdit(str(current_qty))
+        self.qty_input.setValidator(QIntValidator(1, max_q))
+        self.qty_input.setStyleSheet('QLineEdit { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; padding: 4px 8px; font-size: 14px; }')
+        layout.addWidget(self.qty_input)
         btn_layout = QHBoxLayout()
         ok_btn = QPushButton(t('button.ok', default='OK'))
         ok_btn.clicked.connect(self.accept)
@@ -2681,7 +3217,10 @@ class QuantityDialog(QDialog):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
     def get_quantity(self) -> int:
-        return self.spin_box.value()
+        try:
+            return int(self.qty_input.text())
+        except ValueError:
+            return 1
 from resource_resolver import get_user_config_dir
 _INV_LOADOUTS_PATH = os.path.join(get_user_config_dir(), 'inventory_loadouts.json')
 _EQ_LOADOUTS_PATH = os.path.join(get_user_config_dir(), 'equipment_loadouts.json')

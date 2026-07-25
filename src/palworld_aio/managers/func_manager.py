@@ -989,25 +989,14 @@ def fix_missions(parent=None):
     player_files = [f for f in os.listdir(save_path) if f.endswith('.sav') and '_dps' not in f]
     if not player_files:
         return {'total': 0, 'fixed': 0, 'skipped': 0}
-    def deep_delete_completed_quest_array(data):
-        found = False
-        if isinstance(data, dict):
-            if 'CompletedQuestArray' in data:
-                data['CompletedQuestArray']['value']['values'] = []
-                return True
-            for v in data.values():
-                if deep_delete_completed_quest_array(v):
-                    found = True
-        elif isinstance(data, list):
-            for item in data:
-                if deep_delete_completed_quest_array(item):
-                    found = True
-        return found
     def process_player_file(filename):
         file_path = os.path.join(save_path, filename)
         try:
             gvas = sav_to_gvasfile(file_path)
-            if deep_delete_completed_quest_array(gvas.properties):
+            sd = gvas.properties.get('SaveData', {}).get('value', {})
+            ca = sd.get('CompletedQuestArray_FullRelease', {}).get('value', {}).get('values')
+            if ca is not None and isinstance(ca, list):
+                ca.clear()
                 gvasfile_to_sav(gvas, file_path)
                 return (1, 1, 0)
             else:
@@ -1619,14 +1608,6 @@ def repair_structures(parent=None):
     map_objs = wsd.get('MapObjectSaveData', {}).get('value', {}).get('values', [])
     if not map_objs:
         return {'total': 0, 'repaired': 0}
-    from palworld_aio.inventory.base_inventory_manager import load_structure_data
-    sd = load_structure_data()
-    asset_hp_map = {}
-    for s in sd.get('structures', []):
-        asset = s.get('asset', '')
-        hp = s.get('hp')
-        if asset and hp is not None:
-            asset_hp_map[asset.lower()] = hp
     total_structures = 0
     repaired_structures = 0
     for obj in map_objs:
@@ -1640,11 +1621,6 @@ def repair_structures(parent=None):
                 if isinstance(hp_data, dict) and 'current' in hp_data and ('max' in hp_data):
                     current = hp_data['current']
                     max_hp = hp_data['max']
-                    asset_name = obj.get('MapObjectId', {}).get('value', '')
-                    correct_hp = asset_hp_map.get(asset_name.lower())
-                    if correct_hp is not None and max_hp != correct_hp:
-                        max_hp = correct_hp
-                        hp_data['max'] = correct_hp
                     if current < max_hp:
                         hp_data['current'] = max_hp
                         repaired_structures += 1
@@ -2376,7 +2352,32 @@ def _scan_dps_for_illegals(players_dir, NAMEMAP, valid_player_uids):
                 uid_str = str(owner_uid).replace('-', '').lower() if owner_uid else puid
                 nick = extract_value(sp, 'NickName', '')
                 pal_name = resolve_name(cid, NAMEMAP) or cid
-                result[uid_str].append({'name': pal_name, 'nickname': nick, 'cid': cid, 'location': 'DPS Storage', 'illegal_markers': illegal_markers})
+                inst_id = str(sp.get('InstanceId', {}).get('value', '')).replace('-', '').lower() if sp.get('InstanceId', {}).get('value') else ''
+                level = int(extract_value(sp, 'Level', 1))
+                rank = int(extract_value(sp, 'Rank', 1))
+                talent_hp = int(extract_value(sp, 'Talent_HP', 0))
+                talent_shot = int(extract_value(sp, 'Talent_Shot', 0))
+                talent_defense = int(extract_value(sp, 'Talent_Defense', 0))
+                rank_hp = int(extract_value(sp, 'Rank_HP', 0))
+                rank_atk = int(extract_value(sp, 'Rank_Attack', 0))
+                rank_def = int(extract_value(sp, 'Rank_Defence', 0))
+                rank_craft = int(extract_value(sp, 'Rank_CraftSpeed', 0))
+                ps_val = sp.get('PassiveSkillList', {})
+                pv = ps_val.get('value', {}) if isinstance(ps_val, dict) else {}
+                pv_list = pv.get('values', []) if isinstance(pv, dict) else []
+                passive_count = len(pv_list)
+                eq_val = sp.get('EquipWaza', {})
+                ev = eq_val.get('value', {}) if isinstance(eq_val, dict) else {}
+                ev_list = ev.get('values', []) if isinstance(ev, dict) else []
+                active_count = sum(1 for s in ev_list if s and isinstance(s, str) and s.strip())
+                result[uid_str].append({
+                    'name': pal_name, 'nickname': nick, 'cid': cid, 'instance_id': inst_id,
+                    'location': 'DPS Storage', 'illegal_markers': illegal_markers,
+                    'level': level, 'rank': rank,
+                    'talent_hp': talent_hp, 'talent_shot': talent_shot, 'talent_defense': talent_defense,
+                    'rank_hp': rank_hp, 'rank_attack': rank_atk, 'rank_defense': rank_def, 'rank_craftspeed': rank_craft,
+                    'passive_count': passive_count, 'active_count': active_count,
+                })
         except:
             continue
     return result
@@ -2417,11 +2418,15 @@ def scan_illegal_pals_by_owner():
     cmap = constants.loaded_level_json['properties']['worldSaveData']['value'].get('CharacterSaveParameterMap', {}).get('value', [])
     players_by_uid = {}
     valid_player_uids = set()
+    guild_names = {}
     wsd = constants.loaded_level_json['properties']['worldSaveData']['value']
     group_data_list = wsd.get('GroupSaveDataMap', {}).get('value', [])
     for group in group_data_list:
         if group['value']['GroupType']['value']['value'] != 'EPalGroupType::Guild':
             continue
+        gid = str(group['key']).replace('-', '').lower()
+        gname = group['value']['RawData']['value'].get('guild_name', 'Unknown Guild')
+        guild_names[gid] = gname
         for p in group['value']['RawData']['value'].get('players', []):
             uid_obj = p.get('player_uid')
             uid = str(uid_obj).replace('-', '').lower() if uid_obj else ''
@@ -2429,9 +2434,18 @@ def scan_illegal_pals_by_owner():
                 valid_player_uids.add(uid)
                 players_by_uid[uid] = {
                     'name': p.get('player_info', {}).get('player_name', 'Unknown'),
-                    'guild_name': group['value']['RawData']['value'].get('guild_name', 'Unknown'),
+                    'guild_name': gname,
                     'level': constants.player_levels.get(uid, 1),
                 }
+    container_to_base = {}
+    for base_camp in wsd.get('BaseCampSaveData', {}).get('value', []):
+        try:
+            wd_raw = base_camp['value']['WorkerDirector']['value']['RawData']['value']
+            wc_id = str(wd_raw.get('container_id', '')).replace('-', '').lower()
+            if wc_id:
+                container_to_base[wc_id] = str(base_camp.get('key', '')).replace('-', '').lower()[:8]
+        except Exception:
+            pass
     result = defaultdict(lambda: {'illegals': [], 'pal_count': 0, 'player_name': 'Unknown', 'guild_name': 'Unknown', 'level': 1})
     for entry in cmap:
         try:
@@ -2455,6 +2469,22 @@ def scan_illegal_pals_by_owner():
             owner_uid = extract_value(sp, 'OwnerPlayerUId', '')
             uid_str = str(owner_uid).replace('-', '').lower() if owner_uid else '00000000000000000000000000000000'
             is_worker = uid_str == '00000000000000000000000000000000'
+            worker_base_id = 'Unknown'
+            if is_worker:
+                worker_gid = str(rawf.get('group_id', '')).replace('-', '').lower() if rawf.get('group_id') else 'none'
+                slot_id_obj = sp.get('SlotId', {})
+                if isinstance(slot_id_obj, dict):
+                    slot_id_val = slot_id_obj.get('value', slot_id_obj)
+                    if isinstance(slot_id_val, dict):
+                        cid_obj = slot_id_val.get('ContainerId', {})
+                        if isinstance(cid_obj, dict):
+                            cid_val = cid_obj.get('value', cid_obj)
+                            if isinstance(cid_val, dict):
+                                full_cid = str(cid_val.get('ID', {}).get('value', 'Unknown')).replace('-', '').lower()
+                                worker_base_id = full_cid[:8]
+                uid_str = f'worker_{worker_gid}_{worker_base_id}'
+                disp_base = container_to_base.get(full_cid, worker_base_id)
+                result[uid_str]['guild_name'] = disp_base
             container_id = 'Unknown'
             slot_id_obj = sp.get('SlotId', {})
             if isinstance(slot_id_obj, dict):
@@ -2484,12 +2514,44 @@ def scan_illegal_pals_by_owner():
             cid = extract_value(sp, 'CharacterID', '')
             pal_name = resolve_name(cid, NAMEMAP) or cid
             result[uid_str]['pal_count'] += 1
-            result[uid_str]['illegals'].append({'name': pal_name, 'nickname': nick, 'cid': cid, 'location': location, 'illegal_markers': illegal_markers})
+            level = int(extract_value(sp, 'Level', 1))
+            rank = int(extract_value(sp, 'Rank', 1))
+            talent_hp = int(extract_value(sp, 'Talent_HP', 0))
+            talent_shot = int(extract_value(sp, 'Talent_Shot', 0))
+            talent_defense = int(extract_value(sp, 'Talent_Defense', 0))
+            rank_hp = int(extract_value(sp, 'Rank_HP', 0))
+            rank_atk = int(extract_value(sp, 'Rank_Attack', 0))
+            rank_def = int(extract_value(sp, 'Rank_Defence', 0))
+            rank_craft = int(extract_value(sp, 'Rank_CraftSpeed', 0))
+            ps_val = sp.get('PassiveSkillList', {})
+            pv = ps_val.get('value', {}) if isinstance(ps_val, dict) else {}
+            pv_list = pv.get('values', []) if isinstance(pv, dict) else []
+            passive_count = len(pv_list)
+            eq_val = sp.get('EquipWaza', {})
+            ev = eq_val.get('value', {}) if isinstance(eq_val, dict) else {}
+            ev_list = ev.get('values', []) if isinstance(ev, dict) else []
+            active_count = sum(1 for s in ev_list if s and isinstance(s, str) and s.strip())
+            inst_id = str(entry.get('key', {}).get('InstanceId', {}).get('value', '')).replace('-', '').lower()
+            result[uid_str]['illegals'].append({
+                'name': pal_name, 'nickname': nick, 'cid': cid, 'instance_id': inst_id,
+                'location': location, 'illegal_markers': illegal_markers,
+                'level': level, 'rank': rank,
+                'talent_hp': talent_hp, 'talent_shot': talent_shot, 'talent_defense': talent_defense,
+                'rank_hp': rank_hp, 'rank_attack': rank_atk, 'rank_defense': rank_def, 'rank_craftspeed': rank_craft,
+                'passive_count': passive_count, 'active_count': active_count,
+            })
             if result[uid_str]['player_name'] == 'Unknown':
-                pinfo = players_by_uid.get(uid_str, {})
-                result[uid_str]['player_name'] = pinfo.get('name', owner_nicknames.get(uid_str, 'Unknown'))
-                result[uid_str]['guild_name'] = pinfo.get('guild_name', 'Unknown')
-                result[uid_str]['level'] = pinfo.get('level', 1)
+                if uid_str.startswith('worker_'):
+                    parts = uid_str.split('_', 2)
+                    pal_guild_id = parts[1] if len(parts) > 1 else ''
+                    gname = guild_names.get(pal_guild_id, 'Unknown Guild')
+                    result[uid_str]['player_name'] = gname
+                    result[uid_str]['level'] = 0
+                else:
+                    pinfo = players_by_uid.get(uid_str, {})
+                    result[uid_str]['player_name'] = pinfo.get('name', owner_nicknames.get(uid_str, 'Unknown'))
+                    result[uid_str]['guild_name'] = pinfo.get('guild_name', 'Unknown')
+                    result[uid_str]['level'] = pinfo.get('level', 1)
         except:
             continue
     if os.path.exists(players_dir):
@@ -2631,14 +2693,15 @@ def fix_illegal_pals_in_save(parent=None, selected_uids=None):
                     owner_uid = extract_value(sp, 'OwnerPlayerUId', '')
                     uid_str = str(owner_uid).replace('-', '').lower() if owner_uid else '00000000000000000000000000000000'
                     is_worker = uid_str == '00000000000000000000000000000000'
+                    guild_id = str(rawf.get('group_id', 'Unknown')).replace('-', '').lower() if rawf.get('group_id') else 'Unknown'
+                    base_id = str(container_id).replace('-', '').lower() if container_id != 'Unknown' else 'unknown'
+                    if is_worker:
+                        uid_str = f'worker_{guild_id}_{base_id[:8]}'
                     if selected_uids_set is not None and uid_str not in selected_uids_set:
                         continue
-                    guild_id = str(rawf.get('group_id', 'Unknown')).lower()
-                    base_id = str(container_id).lower() if container_id != 'Unknown' else 'unknown'
                     location = 'PalBox Storage'
                     if is_worker:
                         location = 'Base Worker'
-                        uid_str = f'WORKER_{guild_id}_{base_id}'
                     elif owner_uid and str(owner_uid).replace('-', '').lower() in player_containers:
                         containers = player_containers[str(owner_uid).replace('-', '').lower()]
                         if str(container_id).lower() == containers['Party']:
@@ -2723,6 +2786,15 @@ def fix_illegal_pals_in_save(parent=None, selected_uids=None):
                                 else:
                                     sp['PassiveSkillList']['value'] = deduped
                                 changed = True
+                    eq_raw = sp.get('EquipWaza')
+                    if isinstance(eq_raw, dict):
+                        eq_v = eq_raw.get('value')
+                        active_skills = eq_v.get('values', []) if isinstance(eq_v, dict) else (eq_v if isinstance(eq_v, list) else [])
+                        if isinstance(active_skills, list):
+                            valid_skills = [s for s in active_skills if s and s.strip()]
+                            if len(valid_skills) > 3:
+                                sp['EquipWaza']['value']['values'] = valid_skills[:3]
+                                changed = True
                     if changed:
                         from palworld_aio.editor.pal_editor.data import get_pal_base_data, _ensure_friendship_thresholds
                         cid = extract_value(sp, 'CharacterID', '')
@@ -2774,6 +2846,8 @@ def fix_illegal_pals_in_save(parent=None, selected_uids=None):
                         if uid_obj:
                             valid_player_uids.add(str(uid_obj).replace('-', '').lower())
             dps_files = [f for f in os.listdir(players_dir) if f.endswith('.sav') and '_dps' in f and (f.replace('_dps.sav', '').lower() in valid_player_uids)]
+            if selected_uids_set is not None:
+                dps_files = [f for f in dps_files if f.replace('_dps.sav', '').lower() in selected_uids_set]
             if dps_files:
                 print(f'Processing {len(dps_files)} DPS files using {os.cpu_count()} CPU cores...')
                 valid_passive_set = DISPLAYABLE_PASSIVE_SET

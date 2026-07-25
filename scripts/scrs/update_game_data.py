@@ -703,19 +703,30 @@ def _make_npc_entry(npc_id, row_data, human_rows, human_rows_ci, npc_name_l10n, 
     if icon_path:
         icon_filename = icon_path.split('/')[-1].split('.')[0] if '.' in icon_path else icon_path.split('/')[-1]
         copied_icon = find_and_copy_icon(icon_filename, 'npcs', npc_icon_subdirs)
-    key = f'NAME_{npc_id}'
-    l10n_name = npc_name_l10n.get(key)
-    if not l10n_name or l10n_name.lower() in ('en_text', 'none', ''):
-        l10n_name = npc_l10n_lower.get(key.lower())
-    if not l10n_name or l10n_name.lower() in ('en_text', 'none', ''):
-        l10n_name = None
-    display_name = l10n_name or _make_npc_name_fallback(npc_id)
-    npc_entry = {'name': display_name, 'asset': npc_id, 'icon': copied_icon or f'/icons/npcs/{npc_id}_icon_normal.webp'}
     hrow = human_rows.get(npc_id) or human_rows_ci.get(npc_id_lower)
     if not hrow:
         base_id = re.sub(r'_v\d+$', '', npc_id)
         if base_id != npc_id:
             hrow = human_rows.get(base_id) or human_rows_ci.get(base_id.lower())
+        if not hrow:
+            base_id = re.sub(r'^(BOSS_|NPC_|PREDATOR_|GYM_|RAID_|SUMMON_|QUEST_|POLICE_)', '', npc_id, flags=re.IGNORECASE)
+            if base_id != npc_id:
+                hrow = human_rows.get(base_id) or human_rows_ci.get(base_id.lower())
+    l10n_name = None
+    key = f'NAME_{npc_id}'
+    l10n_name = npc_name_l10n.get(key)
+    if not l10n_name or l10n_name.lower() in ('en_text', 'none', ''):
+        l10n_name = npc_l10n_lower.get(key.lower())
+    if (not l10n_name or l10n_name.lower() in ('en_text', 'none', '')) and hrow and isinstance(hrow, dict):
+        override = hrow.get('OverrideNameTextID', '')
+        if override:
+            l10n_name = npc_name_l10n.get(override)
+            if not l10n_name or l10n_name.lower() in ('en_text', 'none', ''):
+                l10n_name = npc_l10n_lower.get(override.lower())
+    if not l10n_name or l10n_name.lower() in ('en_text', 'none', ''):
+        l10n_name = None
+    display_name = l10n_name or _make_npc_name_fallback(npc_id)
+    npc_entry = {'name': display_name, 'asset': npc_id, 'icon': copied_icon or f'/icons/npcs/{npc_id}_icon_normal.webp'}
     if hrow and isinstance(hrow, dict):
         ws = {}
         for w in ['EmitFlame', 'Watering', 'Seeding', 'GenerateElectricity', 'Handcraft', 'Collection', 'Deforest', 'Mining', 'OilExtraction', 'ProductMedicine', 'Cool', 'Transport', 'MonsterFarm']:
@@ -2349,6 +2360,63 @@ def update_boss_mapping():
         for a in sorted(unmatched):
             name = next((it.get('name','?') for it in items_data.get('items',[]) if it.get('asset')==a), a)
             print(f'    {a} ({name})')
+def update_food_buff_data():
+    print('\n=== Updating Food Buff Data ===')
+    food_data = load_export_json('Item/DT_StatusEffectFood.json')
+    if not food_data:
+        print('  No food buff data found. Skipping.')
+        return
+    rows = get_rows(food_data)
+    if not rows:
+        print('  No food buff rows found. Skipping.')
+        return
+    buffs = {}
+    for key, row in rows.items():
+        et1 = row.get('EffectType1', '')
+        ev1 = row.get('EffectValue1', 0)
+        et2 = row.get('EffectType2', '')
+        ev2 = row.get('EffectValue2', 0)
+        et = row.get('EffectTime', 0)
+        if isinstance(et1, dict): et1 = et1.get('value', '')
+        if isinstance(ev1, dict): ev1 = ev1.get('value', 0)
+        if isinstance(et2, dict): et2 = et2.get('value', '')
+        if isinstance(ev2, dict): ev2 = ev2.get('value', 0)
+        if isinstance(et, dict): et = et.get('value', 0)
+        et1 = et1.replace('EPalFoodStatusEffectType::', '')
+        et2 = et2.replace('EPalFoodStatusEffectType::', '')
+        effects = []
+        if et1 != 'None':
+            effects.append({'type': et1, 'value': ev1})
+        if et2 != 'None':
+            effects.append({'type': et2, 'value': ev2})
+        buffs[key] = {'duration': et, 'effects': effects}
+    output = {'food_buffs': buffs}
+    save_resource_json('foodbuffdata.json', output)
+    print(f'  Total food buff items: {len(buffs)}')
+
+def update_quest_data():
+    print('\n=== Updating Quest Data ===')
+    quest_data = load_export_json('Quest/DT_PalQuestData.json')
+    if not quest_data:
+        print('  No quest data found. Skipping.')
+        return
+    rows = get_rows(quest_data)
+    if not rows:
+        print('  No quest rows found. Skipping.')
+        return
+    quests = []
+    for qid in sorted(rows.keys()):
+        row = rows[qid]
+        qtype = row.get('QuestType', '')
+        if isinstance(qtype, dict):
+            qtype = qtype.get('value', '')
+        qtype = qtype.replace('EPalQuestType::', '')
+        display = qid.replace('_', ' ').strip()
+        quests.append({'id': qid, 'type': qtype, 'name': display})
+    output = {'quests': quests}
+    save_resource_json('questdata.json', output)
+    print(f'  Total quests: {len(quests)}')
+
 def update_world_map_area_data():
     print('\n=== Updating World Map Area Data ===')
     area_data = load_export_json('WorldMapAreaData/DT_WorldMapAreaData.json')
@@ -2459,6 +2527,12 @@ def update_ui_icons():
         ui_icons['talent_checker'] = path_talent
     else:
         print('    WARNING: Talent checker icon not found')
+    for cat in ('Buff', 'Debuff', 'Base'):
+        for num in range(1, 16):
+            src = main_menu_dir / f'T_icon_BuffTimer_{cat}_{num:02d}.png'
+            path = copy_icon_to_resources(src, target_subdir)
+            if path:
+                ui_icons[f'buff_{cat.lower()}_{num:02d}'] = path
     result = {'ui_icons': ui_icons}
     save_resource_json('uidata.json', result)
     print(f'  Total UI icons: {len(ui_icons)}')
@@ -3087,6 +3161,8 @@ def main():
     _run_step('Updating relic data...', update_relic_data)
     _run_step('Updating UI icons...', update_ui_icons)
     _run_step('Updating boss mapping...', update_boss_mapping)
+    _run_step('Updating quest data...', update_quest_data)
+    _run_step('Updating food buff data...', update_food_buff_data)
     _run_step('Updating work data...', update_work_data)
     _run_step('Updating world map areas...', update_world_map_area_data)
     _run_step('Updating fast travel data...', update_fast_travel_data)

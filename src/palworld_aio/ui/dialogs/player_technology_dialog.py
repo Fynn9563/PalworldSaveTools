@@ -1,6 +1,6 @@
 import os
 from palsav import json_tools
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QScrollArea, QGroupBox, QMessageBox, QAbstractItemView, QListView
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QScrollArea, QGroupBox, QMessageBox, QAbstractItemView, QListView, QWidget, QFrame
 from palworld_aio.widgets.toggle_check import ToggleCheckBtn
 from PySide6.QtCore import Qt, Signal, QSize, QEvent
 from PySide6.QtGui import QShowEvent
@@ -16,9 +16,8 @@ class PlayerTechnologyActionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t('player_technology.title') if t else 'Bulk Technology Management')
-        self.setMinimumSize(900, 650)
-        self.selected_tech_asset = None
-        self.selected_tech_name = None
+        self.setMinimumSize(1120, 650)
+        self._selected_techs = {}
         self.tech_data = []
         self.players_data = []
         self._setup_ui()
@@ -40,25 +39,25 @@ class PlayerTechnologyActionDialog(QDialog):
         search_bar_layout.addWidget(search_label)
         search_bar_layout.addWidget(self.search_input)
         search_layout.addLayout(search_bar_layout)
-        self.results_list = QListWidget()
-        self.results_list.setViewMode(QListView.IconMode)
-        self.results_list.setIconSize(QSize(48, 48))
-        self.results_list.setSpacing(0)
-        self.results_list.setUniformItemSizes(True)
-        self.results_list.setGridSize(QSize(80, 80))
-        self.results_list.setResizeMode(QListWidget.Adjust)
-        self.results_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.results_list.setDragEnabled(False)
-        self.results_list.setAcceptDrops(False)
-        self.results_list.itemClicked.connect(self._on_tech_clicked)
-        self.results_list.itemDoubleClicked.connect(self._on_add_technology_direct)
-        search_layout.addWidget(self.results_list)
+        self._tech_scroll = QScrollArea()
+        self._tech_scroll.setWidgetResizable(True)
+        self._tech_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._tech_scroll.setStyleSheet('QScrollArea { border: 1px solid rgba(125,211,252,0.12); border-radius: 4px; background: transparent; }')
+        self._tech_ct = QWidget()
+        self._tech_layout = QVBoxLayout(self._tech_ct)
+        self._tech_layout.setContentsMargins(4, 4, 4, 4); self._tech_layout.setSpacing(4)
+        self._tech_layout.addStretch()
+        self._tech_scroll.setWidget(self._tech_ct)
+        search_layout.addWidget(self._tech_scroll, 1)
         self.tech_info_label = QLabel(t('player_technology.select_tech_prompt') if t else 'Select a technology to perform actions')
         self.tech_info_label.setStyleSheet('color: #888; font-style: italic; padding: 5px;')
         search_layout.addWidget(self.tech_info_label)
         search_group.setLayout(search_layout)
-        layout.addWidget(search_group)
+        hsplit = QHBoxLayout()
+        hsplit.setSpacing(10)
+        hsplit.addWidget(search_group, 1)
         self.players_group = QGroupBox(t('player_technology.players') if t else 'Select Players')
+        self.players_group.setMinimumWidth(240)
         players_layout = QVBoxLayout()
         btn_layout = QHBoxLayout()
         self.select_all_btn = QPushButton(t('player_technology.select_all') if t else 'Select All')
@@ -73,10 +72,10 @@ class PlayerTechnologyActionDialog(QDialog):
         players_layout.addLayout(btn_layout)
         self.player_list = QListWidget()
         self.player_list.setSelectionMode(QAbstractItemView.NoSelection)
-        players_layout.addWidget(self.player_list)
+        players_layout.addWidget(self.player_list, 1)
         self.players_group.setLayout(players_layout)
-        self.players_group.setVisible(False)
-        layout.addWidget(self.players_group)
+        hsplit.addWidget(self.players_group)
+        layout.addLayout(hsplit, 1)
         action_layout = QHBoxLayout()
         self.add_btn = QPushButton(t('player_technology.add_tech') if t else 'Add Technology')
         self.add_btn.clicked.connect(self._on_add_technology)
@@ -103,24 +102,50 @@ class PlayerTechnologyActionDialog(QDialog):
             self._display_technologies(self.tech_data)
         except Exception as e:
             print(f'Error loading technologies: {e}')
+    def _grouped_techs(self, techs):
+        groups = {}
+        for t in techs:
+            lc = t.get('level_cap', 0)
+            bt = t.get('is_boss_tech', False)
+            if lc not in groups:
+                groups[lc] = {'regular': [], 'ancient': None}
+            if bt:
+                groups[lc]['ancient'] = t
+            else:
+                groups[lc]['regular'].append(t)
+        return dict(sorted(groups.items()))
     def _display_technologies(self, technologies):
-        self.results_list.clear()
-        for tech in technologies:
-            name = tech.get('name', 'Unknown')
-            asset = tech.get('asset', '')
-            item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, asset)
-            tip = f'<b>{name}</b><br>({asset})'
-            tech_desc = tech.get('description', '')
-            if tech_desc:
-                cleaned = _clean_desc_for_tooltip(tech_desc)
-                tip += f'<br><br>{wrap_tooltip_text(cleaned)}'
-            item.setToolTip(tip)
-            icon = self._get_tech_icon(tech)
-            if icon:
-                item.setIcon(icon)
-            item.setSizeHint(QSize(80, 80))
-            self.results_list.addItem(item)
+        for i in reversed(range(self._tech_layout.count())):
+            w = self._tech_layout.itemAt(i).widget()
+            if w: w.deleteLater()
+        groups = self._grouped_techs(technologies)
+        for lc, g in groups.items():
+            row_w = QWidget()
+            rl = QHBoxLayout(row_w); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(4)
+            badge = QLabel(str(lc))
+            badge.setFixedSize(36, 76)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet('font-size: 13px; font-weight: 700; color: #fbbf24; border: 2px solid rgba(251,191,36,0.3); border-radius: 6px; background: rgba(251,191,36,0.06);')
+            rl.addWidget(badge)
+            for tech in g['regular']:
+                rl.addWidget(self._make_tech_frame(tech))
+            for _ in range(max(0, 8 - len(g['regular']))):
+                ph = QWidget(); ph.setFixedSize(76, 76); rl.addWidget(ph)
+            div = QFrame()
+            div.setFrameShape(QFrame.VLine)
+            div.setStyleSheet('background: rgba(167,139,250,0.3); max-width: 1px;')
+            div.setFixedWidth(1)
+            rl.addWidget(div)
+            if g['ancient']:
+                rl.addWidget(self._make_tech_frame(g['ancient']))
+            else:
+                ph = QWidget(); ph.setFixedSize(76, 76)
+                ph.setStyleSheet('background: rgba(167,139,250,0.04); border: 1px dashed rgba(167,139,250,0.1); border-radius: 4px;')
+                rl.addWidget(ph)
+            rl.addStretch()
+            self._tech_layout.addWidget(row_w)
+        self._tech_layout.addStretch()
+        self._tech_ct.update()
     def _get_tech_icon(self, tech):
         try:
             base_dir = constants.get_base_path()
@@ -156,16 +181,72 @@ class PlayerTechnologyActionDialog(QDialog):
         query_lower = query.lower()
         filtered = [t for t in self.tech_data if query_lower in t.get('name', '').lower() or query_lower in t.get('asset', '').lower()]
         self._display_technologies(filtered)
-    def _on_tech_clicked(self, item):
-        self.selected_tech_asset = item.data(Qt.UserRole)
-        self.selected_tech_name = item.text()
-        self.tech_info_label.setText(f'Selected: {self.selected_tech_name} ({self.selected_tech_asset})')
-        self.tech_info_label.setStyleSheet('color: #4ade80; font-weight: bold; padding: 5px;')
-        self.players_group.setVisible(True)
-        self.select_all_btn.setEnabled(True)
-        self.deselect_all_btn.setEnabled(True)
-        self.add_btn.setEnabled(True)
-        self.remove_btn.setEnabled(True)
+    def _make_tech_frame(self, tech):
+        asset = tech.get('asset', '')
+        name = tech.get('name', '')
+        frame = QFrame()
+        frame.setFixedSize(76, 76)
+        frame.setCursor(Qt.PointingHandCursor)
+        frame._tech_asset = asset
+        frame._tech_name = name
+        frame.installEventFilter(self)
+        frame.setStyleSheet('QFrame { background: rgba(125,211,252,0.06); border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; } QFrame:hover { background: rgba(125,211,252,0.12); }')
+        vl = QVBoxLayout(frame); vl.setContentsMargins(2, 2, 2, 2); vl.setSpacing(0)
+        icon = tech.get('icon', '')
+        if icon:
+            base_dir = constants.get_base_path()
+            fp = resource_path(base_dir, 'game_data', icon.lstrip('/'))
+            if os.path.exists(fp):
+                pix = QPixmap(fp)
+                il = QLabel()
+                il.setPixmap(pix.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                il.setAlignment(Qt.AlignCenter)
+                vl.addWidget(il, 1)
+        nl = QLabel(tech.get('name', ''))
+        nl.setAlignment(Qt.AlignCenter)
+        nl.setStyleSheet('font-size: 7px; color: #e2e8f0; background: transparent;')
+        vl.addWidget(nl)
+        a2 = tech.get('asset', '')
+        tip = f'<b>{name}</b><br>({a2})'
+        td = tech.get('description', '')
+        if td:
+            tip += f'<br><br>{wrap_tooltip_text(_clean_desc_for_tooltip(td))}'
+        tip += f'<br><br>Level {tech.get("level_cap",0)}  Cost: {tech.get("cost",0)}'
+        frame.setToolTip(tip)
+        return frame
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            asset = getattr(obj, '_tech_asset', None)
+            name = getattr(obj, '_tech_name', None)
+            if asset:
+                if asset in self._selected_techs:
+                    del self._selected_techs[asset]
+                    obj.setStyleSheet('QFrame { background: rgba(125,211,252,0.06); border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; } QFrame:hover { background: rgba(125,211,252,0.12); }')
+                else:
+                    self._selected_techs[asset] = name
+                    obj.setStyleSheet('QFrame { background: rgba(125,211,252,0.15); border: 1px solid rgba(125,211,252,0.5); border-radius: 4px; }')
+                count = len(self._selected_techs)
+                if count:
+                    if count == 1:
+                        self.tech_info_label.setText(f'Selected: {name} ({asset})')
+                    else:
+                        self.tech_info_label.setText(f'Selected {count} technologies')
+                    self.tech_info_label.setStyleSheet('color: #4ade80; font-weight: bold; padding: 5px;')
+                    self.select_all_btn.setEnabled(True)
+                    self.deselect_all_btn.setEnabled(True)
+                    self.add_btn.setEnabled(True)
+                    self.remove_btn.setEnabled(True)
+                else:
+                    self.tech_info_label.setText(t('player_technology.select_tech_prompt') if t else 'Select a technology to perform actions')
+                    self.tech_info_label.setStyleSheet('color: #888; font-style: italic; padding: 5px;')
+                    self.add_btn.setEnabled(False)
+                    self.remove_btn.setEnabled(False)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _clear_frame_style(self, w):
+        if isinstance(w, QFrame) and w.property('tech_asset'):
+            w.setStyleSheet('QFrame { background: rgba(125,211,252,0.06); border: 1px solid rgba(125,211,252,0.2); border-radius: 4px; } QFrame:hover { background: rgba(125,211,252,0.12); }')
     def _load_players(self):
         self.player_list.clear()
         self.players_data = []
@@ -214,111 +295,90 @@ class PlayerTechnologyActionDialog(QDialog):
             if widget:
                 widget.setChecked(False)
     def _on_add_technology(self):
-        if not self.selected_tech_asset:
+        if not self._selected_techs:
             return
         players = self._get_selected_players()
         if not players:
             QMessageBox.warning(self, t('player_technology.no_players_selected') if t else 'No Players Selected', t('player_technology.select_at_least_one') if t else 'Please select at least one player.')
             return
-        reply = QMessageBox.question(self, t('player_technology.confirm_add') if t else 'Confirm Add', t('player_technology.confirm_add_msg').format(tech_name=self.selected_tech_name, count=len(players)) if t else f'Add "{self.selected_tech_name}" to {len(players)} selected player(s)?', QMessageBox.Yes | QMessageBox.No)
+        reply = QMessageBox.question(self, t('player_technology.confirm_add') if t else 'Confirm Add',
+            f'Add {len(self._selected_techs)} tech(s) to {len(players)} selected player(s)?', QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             self._do_add_technology(players)
 
-    def _on_add_technology_direct(self):
-        if not self.selected_tech_asset:
-            return
-        players = self._get_selected_players()
-        if not players:
-            QMessageBox.warning(self, t('player_technology.no_players_selected') if t else 'No Players Selected', t('player_technology.select_at_least_one') if t else 'Please select at least one player.')
-            return
-        self._do_add_technology(players)
-
     def _do_add_technology(self, players):
         success_count = 0
+        techs = list(self._selected_techs.keys())
         for uid in players:
-            if self._add_technology_to_player(uid, self.selected_tech_asset):
-                success_count += 1
-        if success_count > 0:
-            self.status_label.setText(t('player_technology.add_complete') if t else 'Bulk Add Complete')
-            self.status_label.setStyleSheet('color: #4ade80; font-weight: bold; padding: 5px;')
-            if hasattr(self.parent(), 'refresh_all'):
-                self.parent().refresh_all()
-        else:
-            self.status_label.setText(t('player_technology.error') if t else 'Error')
-            self.status_label.setStyleSheet('color: #f87171; font-weight: bold; padding: 5px;')
+            try:
+                player_id = str(uid).replace('-', '').upper()
+                file_path = os.path.join(constants.current_save_path, 'Players', f'{player_id.zfill(32)}.sav')
+                if not os.path.exists(file_path):
+                    continue
+                gvas = sav_to_gvasfile(file_path)
+                sd = gvas.properties.get('SaveData', {}).get('value', {})
+                uv = sd.setdefault('UnlockedRecipeTechnologyNames', {})
+                uv_val = uv.setdefault('value', {}); uv_list = uv_val.setdefault('values', [])
+                if not isinstance(uv_list, list):
+                    continue
+                changed = False
+                for asset in techs:
+                    if asset not in uv_list:
+                        uv_list.append(asset)
+                        changed = True
+                if changed:
+                    if 'array_type' not in uv:
+                        uv['array_type'] = 'NameProperty'; uv['type'] = 'ArrayProperty'; uv['id'] = None
+                    gvasfile_to_sav(gvas, file_path)
+                    success_count += 1
+            except Exception:
+                pass
+        QMessageBox.information(self, t('player_technology.title') if t else 'Bulk Technology Management',
+            t('player_technology.applied', count=len(self._selected_techs), players=max(success_count, 1)) if t else f'Applied {len(self._selected_techs)} tech(s) to {max(success_count, 1)} player(s).')
+        if hasattr(self.parent(), 'refresh_all'):
+            self.parent().refresh_all()
     def _on_remove_technology(self):
-        if not self.selected_tech_asset:
+        if not self._selected_techs:
             return
         players = self._get_selected_players()
         if not players:
             QMessageBox.warning(self, t('player_technology.no_players_selected') if t else 'No Players Selected', t('player_technology.select_at_least_one') if t else 'Please select at least one player.')
             return
-        reply = QMessageBox.question(self, t('player_technology.confirm_remove') if t else 'Confirm Remove', t('player_technology.confirm_remove_msg').format(tech_name=self.selected_tech_name, count=len(players)) if t else f'Remove "{self.selected_tech_name}" from {len(players)} selected player(s)?', QMessageBox.Yes | QMessageBox.No)
+        reply = QMessageBox.question(self, t('player_technology.confirm_remove') if t else 'Confirm Remove',
+            f'Remove {len(self._selected_techs)} tech(s) from {len(players)} selected player(s)?', QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             success_count = 0
+            techs = list(self._selected_techs.keys())
             for uid in players:
-                if self._remove_technology_from_player(uid, self.selected_tech_asset):
-                    success_count += 1
-            if success_count > 0:
-                self.status_label.setText(t('player_technology.remove_complete') if t else 'Bulk Remove Complete')
-                self.status_label.setStyleSheet('color: #4ade80; font-weight: bold; padding: 5px;')
-                if hasattr(self.parent(), 'refresh_all'):
-                    self.parent().refresh_all()
-            else:
-                self.status_label.setText(t('player_technology.error') if t else 'Error')
-                self.status_label.setStyleSheet('color: #f87171; font-weight: bold; padding: 5px;')
-    def _add_technology_to_player(self, player_uid, tech_asset):
-        try:
-            if not constants.current_save_path:
-                return False
-            player_id = str(player_uid).replace('-', '').upper()
-            file_path = os.path.join(constants.current_save_path, 'Players', f'{player_id.zfill(32)}.sav')
-            if not os.path.exists(file_path):
-                return False
-            gvas = sav_to_gvasfile(file_path)
-            def inject_tech(data):
-                if isinstance(data, dict):
-                    if 'UnlockedRecipeTechnologyNames' in data:
-                        values_list = data['UnlockedRecipeTechnologyNames']['value']['values']
-                        if tech_asset not in values_list:
-                            values_list.append(tech_asset)
-                    for v in data.values():
-                        inject_tech(v)
-                elif isinstance(data, list):
-                    for item in data:
-                        inject_tech(item)
-            inject_tech(gvas.properties)
-            gvasfile_to_sav(gvas, file_path)
-            return True
-        except Exception as e:
-            print(f'Error adding technology: {e}')
-            return False
-    def _remove_technology_from_player(self, player_uid, tech_asset):
-        try:
-            if not constants.current_save_path:
-                return False
-            player_id = str(player_uid).replace('-', '').upper()
-            file_path = os.path.join(constants.current_save_path, 'Players', f'{player_id.zfill(32)}.sav')
-            if not os.path.exists(file_path):
-                return False
-            gvas = sav_to_gvasfile(file_path)
-            def remove_tech(data):
-                if isinstance(data, dict):
-                    if 'UnlockedRecipeTechnologyNames' in data:
-                        values_list = data['UnlockedRecipeTechnologyNames']['value']['values']
-                        if tech_asset in values_list:
-                            values_list.remove(tech_asset)
-                    for v in data.values():
-                        remove_tech(v)
-                elif isinstance(data, list):
-                    for item in data:
-                        remove_tech(item)
-            remove_tech(gvas.properties)
-            gvasfile_to_sav(gvas, file_path)
-            return True
-        except Exception as e:
-            print(f'Error removing technology: {e}')
-            return False
+                try:
+                    player_id = str(uid).replace('-', '').upper()
+                    file_path = os.path.join(constants.current_save_path, 'Players', f'{player_id.zfill(32)}.sav')
+                    if not os.path.exists(file_path):
+                        continue
+                    gvas = sav_to_gvasfile(file_path)
+                    sd = gvas.properties.get('SaveData', {}).get('value', {})
+                    if 'UnlockedRecipeTechnologyNames' not in sd:
+                        continue
+                    uv = sd['UnlockedRecipeTechnologyNames']
+                    uv_val = uv.get('value', {}); uv_list = uv_val.get('values', [])
+                    if not isinstance(uv_list, list):
+                        continue
+                    changed = False
+                    for asset in techs:
+                        if asset in uv_list:
+                            uv_list.remove(asset)
+                            changed = True
+                    if changed:
+                        if 'array_type' not in uv:
+                            uv['array_type'] = 'NameProperty'; uv['type'] = 'ArrayProperty'; uv['id'] = None
+                        gvasfile_to_sav(gvas, file_path)
+                        success_count += 1
+                except Exception:
+                    pass
+            QMessageBox.information(self, t('player_technology.title') if t else 'Bulk Technology Management',
+                t('player_technology.applied', count=len(self._selected_techs), players=max(success_count, 1)) if t else f'Applied {len(self._selected_techs)} tech(s) to {max(success_count, 1)} player(s).')
+            if hasattr(self.parent(), 'refresh_all'):
+                self.parent().refresh_all()
     def refresh_labels(self):
         self.setWindowTitle(t('player_technology.title') if t else 'Bulk Technology Management')
         self.search_input.setPlaceholderText(t('player_technology.search_placeholder') if t else 'Type to search technologies...')

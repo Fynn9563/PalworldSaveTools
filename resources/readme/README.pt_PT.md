@@ -30,7 +30,7 @@
 
 Palworld Save Tools (PST) é um aplicativo de desktop rápido e completo para inspecionar e editar arquivos salvos do Palworld. Construído com Python e PySide6, ele lê e grava diretamente o formato de salvamento compactado do jogo - sem necessidade de mods de jogo.
 
-Se você precisa gerenciar um servidor dedicado, migrar entre servidores cooperativos e dedicados, limpar dados abandonados ou ajustar Pals individual, o PST fornece uma interface unificada única para tudo isso.
+Se você precisa gerenciar um servidor dedicado, migrar entre servidores cooperativos e dedicados, limpar dados abandonados ou ajustar Pals individual, o PST fornece uma interface unificada para tudo isso.
 
 ### Destaques
 
@@ -68,10 +68,6 @@ Se você precisa gerenciar um servidor dedicado, migrar entre servidores coopera
 - [A Equipe Palworld](#a-equipe-palworld)
 - [Agradecimentos](#agradecimentos)
 
-- [Suporte](#suporte)
-- [Licença](#licença)
-- [Agradecimentos](#agradecimentos)
-
 
 
 
@@ -88,6 +84,18 @@ Se você precisa gerenciar um servidor dedicado, migrar entre servidores coopera
 <img src="https://readme-typing-svg.demolab.com?lines=As+coisas+boas;Confira;Embalado+com+ferramentas&center=true&width=290&height=28&font=monospace&size=22&color=7DD3FC&vCenter=true" alt="" />
 
 </div>
+
+| Categoria | O que você pode fazer |
+|---|---|
+| **Gerenciamento de jogadores** | Edite nomes, níveis, estatísticas, pontos técnicos. Gerenciar itens em massa, pals, tecnologia entre jogadores. Limpe jogadores inativos ou duplicados. |
+| **Pal Editor** | Alterar estatísticas, IVs, almas, classificação, habilidades, passives, adequação ao trabalho, chefe / bandeiras de sorte. Exportar/importar pals. Detecte e corrija pals ilegal. Modo de trapaça para edição ilimitada. |
+| **Gerenciamento de Guilda** | Renomeie guildas, mude líderes, defina níveis. Desbloqueie pesquisas de laboratório. Mova jogadores entre guildas. Exclua guildas vazias ou inativas. |
+| **Ferramentas do acampamento base** | Veja todas as bases com informações da guilda. Exportar/importar projetos. Clone bases para outras guildas. Reposicione as bases no mapa. Ajuste o raio. Exclua bases inativas. |
+| **Visualizador de mapa** | Mapa mundial interativo com marcadores de base e de jogador. Desenhe zonas de exclusão. Modo de calibração. Visualizações do mapa mundial e do mapa em árvore. Zoom, panorâmica, fly-to. |
+| **Gerenciamento de estoque** | Edite itens de jogadores, itens principais e slots de equipamentos. Desbloqueie todos os pontos de viagem rápida. Navegue e edite inventários básicos e contêineres em todas as guildas. Gerenciar trabalhador base pals. |
+| **Exclusões** | Proteja jogadores, guildas e bases contra limpeza com listas de exclusão persistentes. Adicione entradas de menus de contexto. |
+| **Salvar ferramentas** | Converta salvamentos entre SAV e JSON. Converta GamePass em Steam. Transferir personagens entre mundos. Corrija os salvamentos do host. Restaure o progresso do mapa. Expanda os slots do palbox. |
+| **Limpeza e utilitários** | Exclua guildas vazias, bases/jogadores inativos, dados não referenciados. Remova itens/pals/estruturas inválidos. Reinicialize masmorras, plataforma de petróleo, quedas de suprimentos. Corrigir carimbos de data/hora. |
 
 ### Gerenciamento de jogadores
 
@@ -109,10 +117,10 @@ Uma interface de edição profunda para qualquer Pal de propriedade de qualquer 
 - **Adequação para o trabalho** — Defina níveis individuais de adequação para o trabalho (0–10).
 - **Bandeiras de Aparência** — Alternar Boss/Alpha, Lucky/Shiny, Predator, Awakened e Imported/DNA.
 - **Classificação e bloqueio** — Defina a classificação e o nível de bloqueio favorito (0–3).
-- **Cheat Mode** — Alterne para expandir todas as letras maiúsculas: nível, IVs, almas, classificação do condensador para 255; desbloquear habilidades ativas/passivas ilimitadas com duplicatas permitidas.
+- **Cheat Mode** — Alterne para expandir todos os limites: nível, IVs, almas, classificação do condensador para 255; desbloquear habilidades ativas/passivas ilimitadas com duplicatas permitidas.
 - **Exportar/Importar** — Clique com o botão direito em qualquer pal para exportar como `.pstpal` (compactado) ou `.json`. Importe para slots vazios em party, palbox, DPS ou trabalhadores de base. Funciona em salvamentos e jogadores.
 - **Max All Pals** — Maximize todas as estatísticas (IVs, almas, classificação, nível) para todos os pals no grupo, todas as páginas palbox ou todos os trabalhadores da base — respeita os limites do modo de trapaça.
-- **Consertar Illegal Pals** — Detecta e limita pals com estatísticas, habilidades ou características ilegais por jogador.
+- **Consertar Illegal Pals** — Detecte e limite pals com estatísticas, habilidades ou características ilegais por jogador.
 - **Bulk Clone/Delete** — Diálogo de seleção de espécies com controles de quantidade e alternadores de origem (Party/Palbox/DPS) para operações em lote.
 - Adicione novo Pals ou exclua rapidamente com clique duplo.
 
@@ -133,6 +141,7 @@ Visualização em dois painéis: lista de guildas no topo, lista de membros abai
 - **Deslocamento de base** — Desloque uma base em deslocamentos X/Y/Z exatos para corrigir o corte ou a flutuação do solo.
 - **Ajustar o raio da base** (50%–1000%).
 - Excluir bases inativas e objetos do mapa não base.
+
 ### Visualizador de mapa
 
 Visualização interativa de todo o seu mundo.
@@ -271,7 +280,7 @@ O inicializador cria um `.venv`, instala dependências via `uv sync` e inicializ
 
 1. **Carregue seu arquivo salvo**
    - Clique em **Menu → Carregar Salvar** ou arraste e solte um arquivo `.sav` na janela.
-- Navegue até a pasta salva do Palworld e selecione `Level.sav`.
+   - Navegue até a pasta salva do Palworld e selecione `Level.sav`.
 
 2. **Explore seus dados**
    - Use as abas — **Mapa**, **Ferramentas**, **Jogadores**, **Guildas**, **Bases**, **Inventário de Jogadores**, **Inventário Base**, **Pal Editor**, **Exclusões** — para explorar seu salvamento.
@@ -324,134 +333,132 @@ O PST pode desbloquear o mapa completo (todos os pontos de viagem rápida) para 
 3. Use a ferramenta **Restaurar Mapa** na guia Ferramentas para aplicar o progresso do mapa desbloqueado em **todos** os seus mundos/servidores de uma só vez.
 4. Salve as alterações. Backups automáticos são criados.
 
-### Host → Transferência de Servidor
+### Cooperativo → Servidor Dedicado
 
 <details>
 <summary>Clique para expandir</summary>
 
-1. Copie `Level.sav` e a pasta `Players` do seu host save.
-2. Cole-os na pasta dedicada de salvamento do servidor.
-3. Inicie o servidor, crie um novo personagem e aguarde o salvamento automático.
-4. Feche o servidor.
-5. Use **Fix Host Save** em PST para migrar o GUID do personagem antigo para o novo.
-6. Copie os arquivos de volta e inicie o servidor.
+Mova seu mundo cooperativo (onde você hospeda seu PC) para um servidor dedicado para que outras pessoas possam jogar mesmo quando você estiver offline.
+
+**Como funciona:** Os salvamentos cooperativos usam `0001.sav` para o jogador anfitrião. Servidores dedicados não — cada jogador tem um UID regular. Fix Host Save **troca** arquivos de dois jogadores (como assentos de negociação), não uma cópia. Seu personagem cooperativo em `0001.sav` é trocado no slot do servidor.
+
+1. **Copie seu salvamento cooperativo para o servidor.**
+   - Local de salvamento cooperativo: `%localappdata%\Pal\Saved\SaveGames\YOURID\RANDOMID\`
+   - Copie `Level.sav` e a pasta `Players` de lá.
+   - Cole na pasta server save: `steamapps\common\Palworld\Pal\Saved\SaveGames\0\RANDOMSERVERID\`
+
+2. **Entre no servidor e crie um personagem temporário.**
+   - Inicie o servidor, entre nele e crie um novo personagem (qualquer nome/aparência — isso é apenas um espaço reservado).
+   - Aguarde o salvamento automático e desligue o servidor.
+
+3. **Troque seu personagem cooperativo no slot do servidor.**
+   - Abra PST → **Ferramentas** → **Corrigir Host Save**.
+   - Navegue até o `Level.sav` do servidor.
+   - **Jogador Fonte**: Selecione seu personagem cooperativo (aquele em `0001.sav` – listado como o anfitrião).
+   - **Jogador alvo**: Selecione o personagem temporário que você acabou de criar.
+- Clique no botão para executar a troca.
+
+4. **Inicie o servidor.**
+   - Seu personagem cooperativo original (com todo o progresso, Pals, bases) agora está vinculado ao servidor. O espaço reservado temporário desapareceu.
 
 </details>
 
-### Troca de Host (Alteração de Host)
+### Servidor Dedicado → Cooperativo
 
 <details>
-<summary>Clique para expandir o guia de troca de host</summary>
+<summary>Clique para expandir</summary>
 
-**Antecedentes:**
+Leve seu personagem de servidor dedicado de volta para um salvamento cooperativo local – útil se você parar de alugar um servidor ou quiser jogar offline.
 
-- O host usa `0001.sav`.
-- Cada cliente usa um UID regular exclusivo, como `1234.sav`, `9876.sav`, etc.
-- O jogador A é o antigo anfitrião com progresso em `0001.sav`.
-- O jogador B é um cliente existente que se tornará o novo host.
+**Como funciona:** A mesma troca de GUID ao contrário — Fix Host Save **troca** dois arquivos, não uma cópia. O personagem do seu servidor (UID normal) é trocado para `0001.sav` (o slot do host) para que você possa hospedar o modo cooperativo com o progresso do seu servidor.
+
+1. **Copie o arquivo salvo do servidor para o seu PC local.**
+   - Local de salvamento do servidor: `steamapps\common\Palworld\Pal\Saved\SaveGames\0\RANDOMSERVERID\`
+   - Copie `Level.sav` e a pasta `Players` de lá.
+   - Cole na pasta cooperativa local: `%localappdata%\Pal\Saved\SaveGames\YOURID\RANDOMID\`
+
+2. **Organize um jogo cooperativo e crie um personagem temporário.**
+   - Inicie o Palworld, organize uma sessão cooperativa e crie um novo personagem.
+   - Deixe salvar automaticamente e feche o Palworld.
+
+3. **Troque seu personagem do servidor no slot de host.**
+   - Abra PST → **Ferramentas** → **Corrigir Host Save**.
+   - Navegue até a cooperativa local `Level.sav`.
+   - **Jogador Fonte**: Selecione seu personagem de servidor dedicado (listado por seu UID).
+   - **Jogador alvo**: Selecione o personagem cooperativo temporário (aquele em `0001.sav` — listado como o anfitrião).
+   - Clique no botão para executar a troca.
+
+4. **Hospede o modo cooperativo normalmente.**
+   - Seu personagem do servidor agora é o host (`0001.sav`). Todo o progresso, Pals, e bases intactas.
+
+</details>
+
+### Mudança de host (troca cooperativa)
+
+<details>
+<summary>Clique para expandir</summary>
+
+Dois jogadores querem trocar o anfitrião. O jogador A está hospedando – seu personagem mora em `0001.sav`. O Jogador B entra como cliente – seu personagem mora em `1234.sav`. Agora eles querem que o Jogador B se torne o anfitrião, mas o slot do anfitrião é sempre `0001.sav`.
+
+**Conceito principal - Fix Host Save sempre TROCA dois jogadores.** Ele troca seus arquivos salvos, como duas pessoas trocando de lugar. NÃO copia um para o outro. Após qualquer troca, ambos os players ainda existem — eles estão apenas em arquivos diferentes.
+
+Como uma troca move o Jogador B para o slot de host, mas deixa os dados do Jogador A no arquivo antigo de B, uma segunda troca é necessária para colocar o personagem original do Jogador A de volta. Veja como:
+
+---
 
 **Estado inicial:**
 ```
-0001.sav = Player A, old host
-1234.sav = Player B, future host
-```
-
-**Pré-requisitos:**
-- O Jogador B deve ter entrado anteriormente no mundo do Jogador A e criado um personagem.
-- O save regular do jogador B deve existir na pasta `Players`.
-- O Jogador A e o Jogador B devem ter pelo menos Nível 2.
-- Faça backup de toda a pasta de salvamento mundial antes de fazer alterações.
-- Desligue o servidor ou feche o Palworld antes de modificar o salvamento.
-
----
-
-### 1. Troque o jogador B no slot host
-
-Abra **Fix Host Save** e selecione:
-```
-Source Player: Player A, 0001.sav
-Target Player: Player B, 1234.sav
-```
-Execute a migração.
-
-Resultado:
-```
-0001.sav = Player B's original progress
-1234.sav = Player A's original progress
-```
-O Jogador B agora ocupa o slot de anfitrião. O progresso original do host do Jogador A é preservado no antigo UID regular do Jogador B.
-
----
-
-### 2. Comece o mundo com o jogador B como o novo anfitrião
-
-Inicie o Palworld com o Jogador B hospedando o mundo. Confirme se o jogador B tem o personagem, nível, inventário, pals, guilda, bases e propriedade corretos.
-
-Salvar estado:
-```
-0001.sav = Player B, new host
-1234.sav = Player A's original progress
+0001.sav  = Player A (current host)
+1234.sav  = Player B (current client)
 ```
 
 ---
 
-### 3. Faça com que o jogador A se junte ao mundo do jogador B
+**Etapa 1 – Trocar A e B.**
+- Abra PST → **Ferramentas** → **Corrigir Host Save**.
+- Navegue até sua cooperativa `Level.sav`.
+- **Fonte**: Jogador A (`0001.sav`). **Alvo**: Jogador B (`1234.sav`).
+- Clique no botão. Fix Host Save troca os dois arquivos.
 
-O Jogador A junta-se ao mundo agora hospedado pelo Jogador B. Palworld pode atribuir ao Jogador A um novo UID regular porque ele não é mais o anfitrião.
-
-Exemplo:
+**Após a etapa 1:**
 ```
-3456.sav = Player A's new client UID
-```
-
-Palworld pode pedir ao Jogador A para criar um novo personagem (esperado). O progresso original do Jogador A ainda está em `1234.sav`.
-
-Após o Jogador A criar o personagem temporário:
-```
-0001.sav = Player B's correct progress
-1234.sav = Player A's original progress
-3456.sav = Player A's new temporary character
+0001.sav  = Player B  ← now the host with B's character
+1234.sav  = Player A  ← A's data is here, but this UID no longer exists in the game
 ```
 
 ---
 
-### 4. Personagem temporário do jogador de nível A
+**Etapa 2 — O Jogador B hospeda, o Jogador A entra.**
+- O jogador B hospeda o mundo. O jogador A entra.
+- Como A não é mais o host, Palworld atribui um UID totalmente novo para o personagem temporário de A (por exemplo, `9999.sav`).
+- O jogador A atinge o **Nível 2** com o personagem temporário e então todos saem do jogo.
 
-1. Faça com que o Jogador A alcance pelo menos o **Nível 2** com o personagem temporário.
-2. Faça o Jogador A sair do servidor.
-3. Encerre o servidor completamente.
-4. Faça backup da pasta de salvamento mundial novamente.
-
-O nível 2 é necessário porque **Fix Host Save** exige que ambos os caracteres selecionados sejam pelo menos de nível 2.
+**Após a etapa 2:**
+```
+0001.sav  = Player B (host, correct)
+1234.sav  = Player A's original data (not linked to any active UID)
+9999.sav  = Player A's temporary character (fresh, Level 2+)
+```
 
 ---
 
-### 5. Restaure o progresso original do jogador A
+**Etapa 3 — Troque os dados originais de A pelo novo UID de A.**
+- Abra **Fix Host Save** novamente com o mesmo `Level.sav`.
+- **Fonte**: `1234.sav` (dados originais do jogador A). **Alvo**: `9999.sav` (personagem temporário do Jogador A).
+- Clique no botão. Eles trocam novamente.
 
-Abra **Fix Host Save** novamente e selecione:
+**Após a etapa 3:**
 ```
-Source Player: Player A's original progress, 1234.sav
-Target Player: Player A's new client UID, 3456.sav
+0001.sav  = Player B (host, correct)
+1234.sav  = Player A's temp character (unused, can delete)
+9999.sav  = Player A's original character  ← restored!
 ```
-Execute a migração. Porque esta é outra troca bidirecional:
-
-```
-0001.sav = Player B's correct host progress
-3456.sav = Player A's restored original progress
-1234.sav = Player A's temporary character
-```
-O novo UID do cliente do Jogador A agora aponta para o personagem original e o progresso do Jogador A.
 
 ---
 
-### Resultado Final:
-```
-0001.sav = Player B, new host with original progress
-3456.sav = Player A, client with restored original progress
-1234.sav = Temporary leftover character
-```
-- O Jogador B hospeda usando o personagem original do Jogador B.
-- O Jogador A entra usando o personagem original restaurado do Jogador A.
+**Concluído.** O Jogador B hospeda o personagem original do Jogador B. O Jogador A junta-se ao personagem original do Jogador A. O `1234.sav` restante pode ser ignorado ou excluído.
+
+> **Por que duas trocas?** Fix Host Save **troca** dois arquivos — não é uma cópia. A primeira troca coloca B no slot de host, mas os dados de A acabam no UID antigo de B (que não existe mais no jogo). A segunda troca move os dados de A para o novo UID do cliente de A. Duas trocas, todo o progresso preservado.
 
 </details>
 
@@ -460,12 +467,19 @@ O novo UID do cliente do Jogador A agora aponta para o personagem original e o p
 <details>
 <summary>Clique para expandir</summary>
 
-Transfira personagens entre diferentes mundos ou servidores preservando personagens, Pals, inventário e tecnologia:
+Copie um jogador (com todos os Pals, inventário, tecnologia e progresso) de um mundo para outro — útil para mover seu personagem entre um mundo cooperativo e um servidor dedicado ou entre dois servidores.
 
-1. Abra a ferramenta **Transferência de personagem** na guia Ferramentas.
-2. Selecione o salvamento de origem e o salvamento de destino.
-3. Transferir um único jogador ou todos os jogadores.
-4. Útil para migrar entre servidores cooperativos e dedicados.
+**Como funciona:** Ao contrário do Fix Host Save (que **troca** dois arquivos), o Character Transfer **copia** um jogador de um `Level.sav` para outro. O salvamento da fonte permanece intacto.
+
+1. Abra PST → **Ferramentas** → **Transferência de personagem**.
+2. **Carregue o arquivo fonte** — clique no botão Fonte e selecione o `Level.sav` que contém o caractere que você deseja copiar (por exemplo, seu servidor antigo).
+3. **Carregue o destino salvo** — clique no botão Destino e selecione o `Level.sav` para o qual deseja copiar (por exemplo, seu novo servidor).
+4. **Selecione o jogador** para transferir na lista de jogadores de origem à esquerda.
+5. **Escolha onde colocá-los** na lista de jogadores alvo à direita — você pode substituir um jogador existente ou deixá-lo vazio para um novo slot.
+6. Clique em **Transferir**. O personagem, Pals, inventário e associação à guilda são copiados para o salvamento de destino.
+7. Salve as alterações. Backups automáticos são criados.
+
+Você também pode transferir **todos os jogadores** de uma só vez usando o botão "Transferir todos".
 
 </details>
 
@@ -569,7 +583,7 @@ As saídas vão para `dist/`:
 -Linux → `dist/PalworldSaveTools-*-linux`
 - macOS → `dist/PalworldSaveTools.app` → empacotado como `.dmg`
 
-### cx_Freeze (instalador do Windows)
+### cx_Freeze (Instalador do Windows)
 
 Para um pacote local do Windows `.7z`:
 
@@ -703,8 +717,7 @@ Este projeto não existiria sem as pessoas por trás dele.
 **[dkoz](https://github.com/dkoz)** — O homem por trás das identidades. Fornece IDs de dados de jogos, visão estrutural sobre os códigos de ID e conhecimento profundo de como os dados do Palworld são conectados, o que mantém a ferramenta precisa a cada atualização do jogo.
 
 **[oMaN-Rod](https://github.com/oMaN-Rod)** — Fornecido o analisador de salvamento original do qual este projeto se bifurcou. Sem seu trabalho fundamental para quebrar o formato de salvamento do Palworld, nada disso existiria. O fork simplificou e simplificou seu analisador no que o PST é hoje.
-
-**[Okaetsu](https://github.com/Okaetsu)** — Modificações de insights que tornaram possível a importação/exportação básica. Sua compreensão de como o Palworld estrutura os dados básicos do lado do modding preencheu a lacuna entre o modding e a edição salva, tornando esse recurso uma realidade.
+**[Okaetsu](https://github.com/Okaetsu)** — Modificação de insights que tornaram possível a importação/exportação básica. Sua compreensão de como o Palworld estrutura os dados básicos do lado do modding preencheu a lacuna entre o modding e a edição salva, tornando esse recurso uma realidade.
 
 
 
@@ -722,6 +735,7 @@ Este projeto não existiria sem as pessoas por trás dele.
 <img src="https://readme-typing-svg.demolab.com?lines=Onde+o+cr%C3%A9dito+%C3%A9+devido;Obrigado+a+todos;Estamos+nos+ombros&center=true&width=390&height=28&font=monospace&size=22&color=7DD3FC&vCenter=true" alt="" />
 
 </div>
+
 Um enorme obrigado a:
 
 - **Palworld** desenvolvido pela Pocketpair, Inc. — para o jogo que nos uniu.

@@ -260,8 +260,11 @@ class MainWindow(QMainWindow):
             self.sidebar.set_console_visible(True)
     def _setup_ui(self):
         self.setWindowTitle(t('deletion.title') if t else 'All-in-One Tools')
-        self.setMinimumSize(1448, 800)
-        self.resize(1448, 800)
+        self.setMinimumSize(1200, 750)
+        screen = QApplication.primaryScreen().availableGeometry()
+        w = min(1448, screen.width() - 40)
+        h = min(800, screen.height() - 40)
+        self.resize(w, h)
         self.setWindowFlags(Qt.FramelessWindowHint)
         if os.path.exists(constants.ICON_PATH):
             self.setWindowIcon(QIcon(constants.ICON_PATH))
@@ -319,6 +322,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.stacked_widget)
         from .chrome.results_widget import ResultsWidget
         self.results_widget = ResultsWidget()
+        self.results_widget.hide_requested.connect(self._toggle_dashboard)
         self.splitter.addWidget(self.results_widget)
         body_layout.addWidget(self.splitter, stretch=1)
         if self._init_collapse:
@@ -608,8 +612,16 @@ class MainWindow(QMainWindow):
         pass
     def _on_load_finished(self, success):
         if success:
+            if 'inventory_tab' in self.__dict__:
+                self.inventory_tab.clear_player()
+            if 'pal_editor_tab' in self.__dict__:
+                self.pal_editor_tab.clear_player()
+                self.pal_editor_tab.current_player_uid = None
+            if 'base_inventory_tab' in self.__dict__:
+                self.base_inventory_tab._clear_guild_selection()
             self.refresh_all()
             constants.dirty = False
+            self.results_widget.clear_selection()
             self.results_widget.refresh_stats_before()
             self.status_bar.showMessage(t('status.loaded') if t else 'Save loaded successfully', 5000)
         else:

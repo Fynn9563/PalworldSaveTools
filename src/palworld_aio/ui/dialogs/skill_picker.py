@@ -292,7 +292,12 @@ class SkillPicker(QWidget):
     def pick(self, skill_map, is_active, pos=None, current_value='', use_exclusions=True, skip_items=None, pal_asset=None):
         self._result = None
         self._search.clear()
-        self._list.clear()
+        self._list.setUpdatesEnabled(False)
+        self._list.setItemDelegate(None)
+        while self._list.count():
+            item = self._list.takeItem(0)
+            self._list.removeItemWidget(item)
+            del item
         self._tier_filter = None
         for k, btn in self._tier_buttons.items():
             btn.setChecked(k is None)
@@ -402,6 +407,7 @@ class SkillPicker(QWidget):
             self._anim_timer.start(33)
         else:
             self._anim_timer = None
+        self._list.setUpdatesEnabled(True)
         move_pos = pos if pos else QCursor.pos()
         self.move(move_pos)
         self.show()
