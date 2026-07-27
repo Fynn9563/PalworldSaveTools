@@ -9,6 +9,40 @@ from functools import partial
 import logging
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMenuBar, QMenu, QStatusBar, QSplitter, QMessageBox, QFileDialog, QInputDialog, QDialog, QComboBox, QApplication, QStackedWidget, QTextEdit, QLineEdit
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QPoint, QPropertyAnimation, QEasingCurve, QByteArray, QThread
+from collections import deque
+from PySide6.QtCore import QObject as _QObject
+
+# --- Belt: keep dialog C++ objects alive until Qt flushes queued teardown events ---
+_KEEP_DIALOGS_MAX = 50
+_keep_dialogs = deque(maxlen=_KEEP_DIALOGS_MAX)
+_original_exec = QDialog.exec
+_original_exec_ = QDialog.exec_
+
+def _safe_exec(self, *args, **kwargs):
+    _keep_dialogs.append(self)
+    return _original_exec(self, *args, **kwargs)
+
+def _safe_exec_(self, *args, **kwargs):
+    _keep_dialogs.append(self)
+    return _original_exec_(self, *args, **kwargs)
+
+QDialog.exec = _safe_exec
+QDialog.exec_ = _safe_exec_
+
+# --- Suspenders: keep ANY QObject wrapper alive until Qt actually deletes it ---
+_keep_until_deleted = {}
+_original_deleteLater = _QObject.deleteLater
+
+def _safe_deleteLater(self):
+    if id(self) in _keep_until_deleted:
+        _original_deleteLater(self)
+        return
+    _keep_until_deleted[id(self)] = self
+    self.destroyed.connect(lambda: _keep_until_deleted.pop(id(self), None))
+    _original_deleteLater(self)
+
+_QObject.deleteLater = _safe_deleteLater
+
 from PySide6.QtGui import QIcon, QFont, QAction, QPixmap, QCloseEvent, QTextCursor
 from i18n import t, set_language, load_resources, get_native_lang_name
 from common import get_versions, get_current_version, get_display_version, is_standalone
@@ -22,7 +56,7 @@ from palworld_aio.widgets.toggle_check import ToggleCheckBtn
 from palworld_aio.utils import as_uuid
 from palworld_aio.managers.save_manager import save_manager
 from palworld_aio.managers.data_manager import get_guilds, get_guild_members, get_bases, delete_guild, delete_player, load_exclusions, save_exclusions, delete_base_camp
-from palworld_aio.managers.func_manager import delete_empty_guilds, delete_inactive_players, delete_inactive_bases, delete_duplicated_players, delete_unreferenced_data, delete_non_base_map_objects, delete_invalid_structure_map_objects, delete_all_skins, unlock_all_private_chests, remove_invalid_items_from_save, remove_invalid_pals_from_save, remove_invalid_passives_from_save, fix_missions, reset_anti_air_turrets, reset_dungeons, reset_oilrig, reset_invader, reset_supply, unlock_viewing_cage_for_player, fix_all_negative_timestamps, reset_selected_player_timestamp, detect_and_trim_overfilled_inventories, unlock_all_technologies_for_player, unlock_all_lab_research_for_guild, modify_container_slots, fix_unassigned_pals, restore_all_pals, fix_all_pals_combined, max_all_pals, fix_illegal_pals_in_save, fix_illegal_player_stats, repair_structures, repair_items, edit_game_days, scan_illegal_pals_by_owner, scan_illegal_players_by_stats
+from palworld_aio.managers.func_manager import delete_empty_guilds, delete_inactive_players, delete_inactive_bases, delete_duplicated_players, delete_unreferenced_data, delete_non_base_map_objects, delete_invalid_structure_map_objects, delete_all_skins, unlock_all_private_chests, remove_invalid_items_from_save, remove_invalid_pals_from_save, remove_invalid_passives_from_save, fix_missions, reset_anti_air_turrets, reset_dungeons, reset_oilrig, reset_invader, reset_supply, reset_lock_gimmick, unlock_viewing_cage_for_player, fix_all_negative_timestamps, reset_selected_player_timestamp, detect_and_trim_overfilled_inventories, unlock_all_technologies_for_player, unlock_all_lab_research_for_guild, modify_container_slots, fix_unassigned_pals, restore_all_pals, fix_all_pals_combined, max_all_pals, fix_illegal_pals_in_save, fix_illegal_player_stats, repair_structures, repair_items, edit_game_days, scan_illegal_pals_by_owner, scan_illegal_players_by_stats
 from palworld_aio.managers.guild_manager import move_player_to_guild, rebuild_all_guilds, make_member_leader, rename_guild, set_guild_level
 from palworld_aio.managers.base_manager import export_base_json, import_base_json, clone_base_complete, update_base_area_range
 from palworld_aio.managers.backup_manager import export_base_backup, load_base_file, compress_to_pst3
@@ -34,6 +68,7 @@ from resource_resolver import resource_path
 from palworld_aio.ui.dialogs.player_item_dialog import PlayerItemActionDialog
 from palworld_aio.ui.dialogs.player_pal_dialog import PlayerPalActionDialog
 from palworld_aio.ui.dialogs.player_technology_dialog import PlayerTechnologyActionDialog
+from palworld_aio.ui.dialogs.guild_assign_dialog import GuildAssignDialog
 class DetachedStatusWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__()
@@ -394,6 +429,10 @@ class MainWindow(QMainWindow):
         self.bulk_tech_btn.setStyleSheet('\n            QPushButton {\n                background: rgba(125, 211, 252, 0.12);\n                color: #7DD3FC;\n                border: 1px solid rgba(125, 211, 252, 0.2);\n                border-radius: 6px;\n                padding: 8px 16px;\n                font-weight: 600;\n            }\n            QPushButton:hover {\n                background: rgba(125, 211, 252, 0.2);\n                border-color: rgba(125, 211, 252, 0.4);\n                color: #FFFFFF;\n            }\n        ')
         self.bulk_tech_btn.clicked.connect(self._open_bulk_technology_dialog)
         bulk_layout.addWidget(self.bulk_tech_btn)
+        self.bulk_guild_btn = QPushButton(t('guild.assign.btn_open') if t else 'Guild Assignments')
+        self.bulk_guild_btn.setStyleSheet('\n            QPushButton {\n                background: rgba(125, 211, 252, 0.12);\n                color: #7DD3FC;\n                border: 1px solid rgba(125, 211, 252, 0.2);\n                border-radius: 6px;\n                padding: 8px 16px;\n                font-weight: 600;\n            }\n            QPushButton:hover {\n                background: rgba(125, 211, 252, 0.2);\n                border-color: rgba(125, 211, 252, 0.4);\n                color: #FFFFFF;\n            }\n        ')
+        self.bulk_guild_btn.clicked.connect(self._open_guild_assign_dialog)
+        bulk_layout.addWidget(self.bulk_guild_btn)
         bulk_layout.addStretch()
         layout.addWidget(bulk_frame)
         self.stacked_widget.addWidget(players_tab)
@@ -473,7 +512,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.excl_bases_panel)
         self.stacked_widget.addWidget(exclusions_tab)
     def _setup_menus(self):
-        menu_actions = {'file': [(t('menu.file.load_save') if t else 'Load Save', self._load_save), (t('menu.file.load_xgp_save') if t else 'Load GamePass Save', self._load_xgp_save), (t('menu.file.load_backup') if t else 'Load from Backup', self._load_backup_save), (t('menu.file.load_worldoption') if t else 'Load WorldOption', self._load_worldoption), (t('menu.file.save_changes') if t else 'Save Changes', self._save_changes), (t('menu.file.rename_world') if t else 'Rename World', self._rename_world), (t('aio.menu.open_data_folder') if t else 'Open Data Folder', self._open_data_folder)], 'functions': [(t('deletion.menu.submenu.delete') if t else 'Delete', [(t('deletion.menu.delete_empty_guilds') if t else 'Delete Empty Guilds', self._delete_empty_guilds), (t('deletion.menu.delete_inactive_bases') if t else 'Delete Inactive Bases', self._delete_inactive_bases), (t('deletion.menu.delete_duplicate_players') if t else 'Delete Duplicate Players', self._delete_duplicate_players), (t('deletion.menu.delete_inactive_players') if t else 'Delete Inactive Players', self._delete_inactive_players), (t('deletion.menu.delete_unreferenced') if t else 'Delete Unreferenced Data', self._delete_unreferenced), (t('deletion.menu.delete_non_base_map_objs') if t else 'Delete Non-Base Map Objects', self._delete_non_base_map_objs), (t('deletion.menu.delete_all_skins') if t else 'Delete All Skins', self._delete_all_skins), (t('deletion.menu.delete_invalid_items') if t else 'Delete Invalid Items', self._remove_invalid_items), (t('deletion.menu.delete_invalid_structures') if t else 'Delete Invalid Structures', self._remove_invalid_structures), (t('deletion.menu.delete_invalid_pals') if t else 'Delete Invalid Pals', self._remove_invalid_pals), (t('deletion.menu.delete_invalid_passives') if t else 'Delete Invalid Passives', self._remove_invalid_passives)]), (t('deletion.menu.submenu.fix') if t else 'Fix', [(t('deletion.menu.fix_structures') if t else 'Fix All Structures', self._repair_structures), (t('deletion.menu.fix_items') if t else 'Fix All Items', self._repair_items), (t('deletion.menu.fix_all_pals') if t else 'Fix All Pals', self._fix_all_pals), (t('deletion.menu.fix_illegal_pals') if t else 'Fix Illegal Pals', self._fix_illegal_pals), (t('deletion.menu.fix_illegal_players') if t else 'Fix Illegal Players', self._fix_illegal_players), (t('deletion.menu.fix_timestamps') if t else 'Fix All Negative Timestamps', self._fix_all_timestamps), (t('deletion.menu.fix_overfilled_inventories') if t else 'Fix Overfilled Inventories', self._trim_overfilled_inventories), (t('deletion.menu.fix_all_guilds') if t else 'Fix All Guilds', self._rebuild_all_guilds)]), (t('deletion.menu.submenu.reset') if t else 'Reset', [(t('deletion.menu.reset_missions') if t else 'Reset Missions', self._reset_missions), (t('deletion.menu.reset_anti_air') if t else 'Reset Anti-Air Turrets', self._reset_anti_air), (t('deletion.menu.reset_oilrig') if t else 'Reset Oil Rigs', self._reset_oilrig), (t('deletion.menu.reset_invader') if t else 'Reset Invaders', self._reset_invader), (t('deletion.menu.reset_supply') if t else 'Reset Supply', self._reset_supply), (t('deletion.menu.reset_dungeons') if t else 'Reset Dungeons', self._reset_dungeons)]), (t('deletion.menu.submenu.misc') if t else 'Misc', [(t('deletion.menu.unlock_private_chests') if t else 'Unlock Private Chests', self._unlock_private_chests), (t('deletion.menu.max_all_pals') if t else 'Max All Pals', self._max_all_pals), (t('deletion.menu.paldefender') if t else 'PalDefender Commands', self._open_paldefender), (t('base.export_all') if t else 'Export All Bases', self._export_all_bases), (t('guild.menu.move_selected_player_to_selected_guild') if t else 'Move Player to Guild', self._move_player_to_guild), (t('modify_container_slots') if t else 'Modify Container Slots', self._modify_container_slots), (t('gamedays.menu') if t else 'Edit Game Days', self._edit_game_days)])], 'configs': [(t('loading.mode.submenu') if t else 'Loading Screen Configs', [(t('loading.mode.show') if t else 'Show Loading Screen', partial(self._set_loading_screen_mode, 'overlay')), (t('loading.mode.hide') if t else 'Hide Loading Screen', partial(self._set_loading_screen_mode, 'header'))])], 'maps': [(t('deletion.menu.show_map') if t else 'Show Map', self._show_map), (t('deletion.menu.generate_map') if t else 'Generate Map', self._generate_map)], 'exclusions': [(t('deletion.menu.save_exclusions') if t else 'Save Exclusions', self._save_exclusions)], 'languages': [(get_native_lang_name(code), partial(self._change_language, code), {'en_US': '🇺🇸', 'zh_CN': '🇨🇳', 'ru_RU': '🇷🇺', 'fr_FR': '🇫🇷', 'es_ES': '🇪🇸', 'de_DE': '🇩🇪', 'ja_JP': '🇯🇵', 'ko_KR': '🇰🇷', 'pt_BR': '🇧🇷', 'pt_PT': '🇵🇹'}[code]) for code in ['en_US', 'zh_CN', 'ru_RU', 'fr_FR', 'es_ES', 'de_DE', 'ja_JP', 'ko_KR', 'pt_BR', 'pt_PT']]}
+        menu_actions = {'file': [(t('menu.file.load_save') if t else 'Load Save', self._load_save), (t('menu.file.load_xgp_save') if t else 'Load GamePass Save', self._load_xgp_save), (t('menu.file.load_backup') if t else 'Load from Backup', self._load_backup_save), (t('menu.file.load_worldoption') if t else 'Load WorldOption', self._load_worldoption), (t('menu.file.save_changes') if t else 'Save Changes', self._save_changes), (t('menu.file.rename_world') if t else 'Rename World', self._rename_world), (t('aio.menu.open_data_folder') if t else 'Open Data Folder', self._open_data_folder)], 'functions': [(t('deletion.menu.submenu.delete') if t else 'Delete', [(t('deletion.menu.delete_empty_guilds') if t else 'Delete Empty Guilds', self._delete_empty_guilds), (t('deletion.menu.delete_inactive_bases') if t else 'Delete Inactive Bases', self._delete_inactive_bases), (t('deletion.menu.delete_duplicate_players') if t else 'Delete Duplicate Players', self._delete_duplicate_players), (t('deletion.menu.delete_inactive_players') if t else 'Delete Inactive Players', self._delete_inactive_players), (t('deletion.menu.delete_unreferenced') if t else 'Delete Unreferenced Data', self._delete_unreferenced), (t('deletion.menu.delete_non_base_map_objs') if t else 'Delete Non-Base Map Objects', self._delete_non_base_map_objs), (t('deletion.menu.delete_all_skins') if t else 'Delete All Skins', self._delete_all_skins), (t('deletion.menu.delete_invalid_items') if t else 'Delete Invalid Items', self._remove_invalid_items), (t('deletion.menu.delete_invalid_structures') if t else 'Delete Invalid Structures', self._remove_invalid_structures), (t('deletion.menu.delete_invalid_pals') if t else 'Delete Invalid Pals', self._remove_invalid_pals), (t('deletion.menu.delete_invalid_passives') if t else 'Delete Invalid Passives', self._remove_invalid_passives)]), (t('deletion.menu.submenu.fix') if t else 'Fix', [(t('deletion.menu.fix_structures') if t else 'Fix All Structures', self._repair_structures), (t('deletion.menu.fix_items') if t else 'Fix All Items', self._repair_items), (t('deletion.menu.fix_all_pals') if t else 'Fix All Pals', self._fix_all_pals), (t('deletion.menu.fix_illegal_pals') if t else 'Fix Illegal Pals', self._fix_illegal_pals), (t('deletion.menu.fix_illegal_players') if t else 'Fix Illegal Players', self._fix_illegal_players), (t('deletion.menu.fix_timestamps') if t else 'Fix All Negative Timestamps', self._fix_all_timestamps), (t('deletion.menu.fix_overfilled_inventories') if t else 'Fix Overfilled Inventories', self._trim_overfilled_inventories), (t('deletion.menu.fix_all_guilds') if t else 'Fix All Guilds', self._rebuild_all_guilds)]), (t('deletion.menu.submenu.reset') if t else 'Reset', [(t('deletion.menu.reset_missions') if t else 'Reset Missions', self._reset_missions), (t('deletion.menu.reset_anti_air') if t else 'Reset Anti-Air Turrets', self._reset_anti_air), (t('deletion.menu.reset_oilrig') if t else 'Reset Oil Rigs', self._reset_oilrig), (t('deletion.menu.reset_invader') if t else 'Reset Invaders', self._reset_invader), (t('deletion.menu.reset_supply') if t else 'Reset Supply', self._reset_supply), (t('deletion.menu.reset_dungeons') if t else 'Reset Dungeons', self._reset_dungeons), (t('deletion.menu.reset_lock_gimmick') if t else 'Reset Mini Game Towers', self._reset_lock_gimmick)]), (t('deletion.menu.submenu.misc') if t else 'Misc', [(t('deletion.menu.unlock_private_chests') if t else 'Unlock Private Chests', self._unlock_private_chests), (t('deletion.menu.max_all_pals') if t else 'Max All Pals', self._max_all_pals), (t('deletion.menu.paldefender') if t else 'PalDefender Commands', self._open_paldefender), (t('base.export_all') if t else 'Export All Bases', self._export_all_bases), (t('guild.menu.move_selected_player_to_selected_guild') if t else 'Move Player to Guild', self._move_player_to_guild), (t('modify_container_slots') if t else 'Modify Container Slots', self._modify_container_slots), (t('gamedays.menu') if t else 'Edit Game Days', self._edit_game_days)])], 'configs': [(t('loading.mode.submenu') if t else 'Loading Screen Configs', [(t('loading.mode.show') if t else 'Show Loading Screen', partial(self._set_loading_screen_mode, 'overlay')), (t('loading.mode.hide') if t else 'Hide Loading Screen', partial(self._set_loading_screen_mode, 'header'))])], 'maps': [(t('deletion.menu.show_map') if t else 'Show Map', self._show_map), (t('deletion.menu.generate_map') if t else 'Generate Map', self._generate_map)], 'exclusions': [(t('deletion.menu.save_exclusions') if t else 'Save Exclusions', self._save_exclusions)], 'languages': [(get_native_lang_name(code), partial(self._change_language, code), {'en_US': '🇺🇸', 'zh_CN': '🇨🇳', 'ru_RU': '🇷🇺', 'fr_FR': '🇫🇷', 'es_ES': '🇪🇸', 'de_DE': '🇩🇪', 'ja_JP': '🇯🇵', 'ko_KR': '🇰🇷', 'pt_BR': '🇧🇷', 'pt_PT': '🇵🇹'}[code]) for code in ['en_US', 'zh_CN', 'ru_RU', 'fr_FR', 'es_ES', 'de_DE', 'ja_JP', 'ko_KR', 'pt_BR', 'pt_PT']]}
         self.header_widget.set_menu_actions(menu_actions)
     def _open_data_folder(self):
         from resource_resolver import get_user_config_dir
@@ -1657,6 +1696,13 @@ class MainWindow(QMainWindow):
         count = reset_supply(self)
         self.refresh_all()
         self._show_info(t('Done'), t('supply_reset_count', count=count))
+    def _reset_lock_gimmick(self):
+        if not constants.loaded_level_json:
+            self._show_warning(t('Error'), t('error.no_save_loaded'))
+            return
+        count = reset_lock_gimmick(self)
+        self.refresh_all()
+        self._show_info(t('Done'), t('lock_gimmick_reset_count', count=count))
     def _fix_all_timestamps(self):
         if not constants.loaded_level_json:
             self._show_warning(t('Error') if t else 'Error', t('guild.rebuild.no_save') if t else 'No save loaded!')
@@ -1689,26 +1735,19 @@ class MainWindow(QMainWindow):
             else:
                 self._show_warning(t('error.title'), t('guild.rebuild.failed'))
         run_with_loading(on_finished, task)
-    def _move_player_to_guild(self):
+    def _open_guild_assign_dialog(self):
         if not constants.loaded_level_json:
             self._show_warning(t('Error'), t('error.no_save_loaded'))
             return
-        player_data = self.players_panel.get_selected_data()
-        guild_data = self.guilds_panel.get_selected_data()
-        if not player_data:
-            self._show_warning(t('Error'), t('guild.move.no_player'))
-            return
-        if not guild_data:
-            self._show_warning(t('Error'), t('guild.common.select_guild_first'))
-            return
-        if move_player_to_guild(player_data[4], guild_data[1]):
-            constants.invalidate_container_lookup()
-            if 'base_inventory_tab' in self.__dict__:
-                self.base_inventory_tab.manager.invalidate_cache()
-            self.refresh_all()
-            self._show_info(t('Done'), t('guild.move.moved', player=player_data[0], guild=guild_data[0]))
-        else:
-            self._show_warning(t('Error'), t('guild.move.failed'))
+        dlg = GuildAssignDialog(self)
+        dlg.exec()
+        constants.invalidate_container_lookup()
+        if 'base_inventory_tab' in self.__dict__:
+            self.base_inventory_tab.manager.invalidate_cache()
+        QTimer.singleShot(0, self.refresh_all)
+
+    def _move_player_to_guild(self):
+        self._open_guild_assign_dialog()
     def _show_map(self):
         if not constants.loaded_level_json:
             self._show_warning(t('Error') if t else 'Error', t('error.no_save_loaded') if t else 'No save file loaded.')
@@ -1792,6 +1831,8 @@ class MainWindow(QMainWindow):
                 self.bulk_pal_btn.setText(t('player.bulk_pal_management') if t else 'Bulk Pal Management')
             if hasattr(self, 'bulk_tech_btn'):
                 self.bulk_tech_btn.setText(t('player.bulk_technology_management') if t else 'Bulk Technology Management')
+            if hasattr(self, 'bulk_guild_btn'):
+                self.bulk_guild_btn.setText(t('guild.assign.btn_open') if t else 'Guild Assignments')
             if hasattr(self, '_active_dialogs'):
                 for dialog in self._active_dialogs:
                     if hasattr(dialog, 'refresh_labels'):
@@ -2130,7 +2171,7 @@ class MainWindow(QMainWindow):
         from ..editor.edit_pals import EditPalsDialog
         dialog = EditPalsDialog(uid, name, self)
         if dialog.exec() == QDialog.Accepted:
-            self.refresh_all()
+            QTimer.singleShot(0, self.refresh_all)
     def _edit_player_inventory(self, uid, name):
         self.sidebar.set_active('player_inventory')
         self.stacked_widget.setCurrentIndex(2)

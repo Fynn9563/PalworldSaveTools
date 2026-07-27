@@ -20,8 +20,6 @@ SINGLETON_TYPE_A = {'EPalItemTypeA::Weapon', 'EPalItemTypeA::MonsterEquipWeapon'
 from palworld_aio import constants
 EQUIP_SLOT_FILTERS = {'weapon': {'type_a': ['EPalItemTypeA::Weapon', 'EPalItemTypeA::MonsterEquipWeapon']}, 'head': {'type_a': 'EPalItemTypeA::Armor', 'type_b': 'EPalItemTypeB::ArmorHead'}, 'body': {'type_a': 'EPalItemTypeA::Armor', 'type_b': 'EPalItemTypeB::ArmorBody'}, 'shield': {'type_a': 'EPalItemTypeA::Armor', 'type_b': 'EPalItemTypeB::Shield'}, 'accessory': {'type_a': 'EPalItemTypeA::Accessory'}, 'glider': {'type_a': 'EPalItemTypeA::Glider'}, 'sphere_mod': {'type_a': 'EPalItemTypeA::CaptureItemModifier'}, 'food': {'type_a': 'EPalItemTypeA::Food'}}
 GRID_COLS = 6
-GRID_ROWS = 9
-SLOT_SIZE = 56
 class ItemSlotWidget(QFrame):
     clicked = Signal(object)
     double_clicked = Signal(object)
@@ -33,65 +31,126 @@ class ItemSlotWidget(QFrame):
         self.slot_data = None
         self.multi_selected = False
         self._click_modifiers = Qt.NoModifier
-        self.setFixedSize(SLOT_SIZE, SLOT_SIZE)
-        self.setFrameStyle(QFrame.Box | QFrame.Raised)
-        self.setLineWidth(1)
+        self.setObjectName('itemSlot')
+        self.setMinimumWidth(56)
+        self.setFixedHeight(86)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
-        self._setup_ui()
-        self._apply_empty_style()
-    def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(0)
-        self.icon_label = QLabel()
-        self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setFixedSize(40, 40)
-        layout.addWidget(self.icon_label, alignment=Qt.AlignCenter)
-        self.qty_label = QLabel()
-        self.qty_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
-        self.qty_label.setStyleSheet('font-size: 10px; font-weight: bold; color: white; background: transparent;')
-        layout.addWidget(self.qty_label, alignment=Qt.AlignRight)
-    def _apply_empty_style(self):
-        self.setStyleSheet(slot_full('ItemSlotWidget'))
-        self.icon_label.clear()
-        self.qty_label.clear()
+        self.setMouseTracking(True)
+        self._children = []
+        self._rebuild()
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, '_children'):
+            return
+        w, h = (self.width(), self.height())
+        for c in self._children:
+            try:
+                kind = c._slot_child_kind
+                cw, ch = (c.width(), c.height())
+                if kind == 'icon':
+                    c.move((w - cw) // 2, (h - ch - 14) // 2)
+                elif kind == 'name':
+                    c.move((w - cw) // 2, h - 13)
+                elif kind == 'qty':
+                    c.move(2, 2)
+                elif kind == 'special':
+                    c.move(w - cw - 2, 2)
+
+            except Exception:
+                pass
+    def _rebuild(self):
+        was_selected = self.multi_selected
+        for c in list(self._children):
+            c.deleteLater()
+        self._children = []
+        if not self.slot_data or not self.slot_data.get('item_id'):
+            self.setStyleSheet(slot_full('QFrame#itemSlot'))
+            self.setToolTip('')
+            return
+        icon_path = self.slot_data.get('icon_path', '')
+        icon_lbl = QLabel(self)
+        icon_lbl.setFixedSize(32, 32)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        if icon_path:
+            pixmap = ItemData.get_item_icon(icon_path, QSize(32, 32))
+            icon_lbl.setPixmap(pixmap)
+        icon_lbl.setStyleSheet('background: transparent; border: none;')
+        icon_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        icon_lbl._slot_child_kind = 'icon'
+        icon_lbl.show()
+        self._children.append(icon_lbl)
+        item_name = self.slot_data.get('item_name', 'Unknown')
+        name_lbl = QLabel(item_name, self)
+        name_lbl.setStyleSheet('color: #94a3b8; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.7); border: 1px solid rgba(125,211,252,0.15); border-radius: 2px; padding: 0 2px;')
+        name_lbl.setAlignment(Qt.AlignCenter)
+        name_lbl.adjustSize()
+        name_lbl.setFixedHeight(10)
+        name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        name_lbl._slot_child_kind = 'name'
+        name_lbl.show()
+        self._children.append(name_lbl)
+        stack_count = self.slot_data.get('stack_count', 1)
+        qty_lbl = QLabel(str(stack_count), self)
+        qty_lbl.setStyleSheet('color: #E2E8F0; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.7); border: 1px solid rgba(125,211,252,0.25); border-radius: 3px; padding: 0 3px;')
+        qty_lbl.adjustSize()
+        qty_lbl.setFixedHeight(11)
+        qty_lbl.setAlignment(Qt.AlignCenter)
+        qty_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        qty_lbl._slot_child_kind = 'qty'
+        qty_lbl.show()
+        self._children.append(qty_lbl)
+        is_booth = self.slot_data.get('is_booth_product', False)
+        is_booth_ask = self.slot_data.get('is_booth_asking', False)
+        if is_booth or is_booth_ask:
+            special_badge = QLabel('$' if is_booth_ask else '⇄', self)
+            special_badge.setFixedSize(14, 14)
+            special_badge.setAlignment(Qt.AlignCenter)
+            special_badge.setStyleSheet('font-size: 9px; font-weight: bold; color: #fbbf24; background: rgba(0,0,0,0.55); border: 1px solid rgba(251,191,36,0.3); border-radius: 7px;')
+            special_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+            special_badge._slot_child_kind = 'special'
+            special_badge.show()
+            self._children.append(special_badge)
+        qty = self.slot_data.get('stack_count', 1)
+        item_id = self.slot_data.get('item_id', '')
+        item_desc = self.slot_data.get('description', '')
+        tip = f'<b>{item_name}</b><br>Qty: {qty}<br><i>{item_id}</i>'
+        if is_booth:
+            cost_name = self.slot_data.get('cost_name', 'Unknown')
+            cost_count = self.slot_data.get('cost_count', 0)
+            tip = f'<b>{item_name}</b><br><i>{item_id}</i>'
+            tip += f'<br><br><span style="color:#fbbf24;font-weight:bold">&#xf0ec;</span> <b>{cost_name}</b> x{cost_count}'
+        elif is_booth_ask:
+            tip = f'<b>{item_name}</b><br>Qty: {qty}<br><i>{item_id}</i>'
+            tip += f'<br><br><span style="color:#fbbf24;font-weight:bold">&#xf0ec; Asking Price</span>'
+        if item_desc:
+            cleaned = _clean_desc_for_tooltip(item_desc)
+            tip += f'<br><br><span style="color:#94a3b8;font-size:11px">{wrap_tooltip_text(cleaned)}</span>'
+        self.setToolTip(tip)
+        rarity = self.slot_data.get('rarity', 0)
+        rarity_colors = {1: '#4ade80', 2: '#60a5fa', 3: '#a855f7'}
+        r_color = rarity_colors.get(rarity)
+        if was_selected:
+            self.setStyleSheet(slot_multi_selected('QFrame#itemSlot'))
+        elif r_color:
+            self.setStyleSheet(slot_rarity('QFrame#itemSlot', r_color))
+        elif rarity >= 4:
+            self.setStyleSheet(slot_rarity('QFrame#itemSlot', '#fbbf24'))
+        else:
+            self.setStyleSheet(slot_rarity('QFrame#itemSlot', '#ffffff'))
+        self.resizeEvent(None)
     def set_item(self, slot_data: dict):
         self.slot_data = slot_data
-        if not slot_data or not slot_data.get('item_id'):
-            self._apply_empty_style()
-            return
-        icon_path = slot_data.get('icon_path', '')
-        if icon_path:
-            pixmap = ItemData.get_item_icon(icon_path, QSize(40, 40))
-            self.icon_label.setPixmap(pixmap)
-        stack_count = slot_data.get('stack_count', 1)
-        self.qty_label.setText(str(stack_count))
-        rarity = slot_data.get('rarity', 0)
-        self._apply_rarity_style(rarity)
-    def _apply_rarity_style(self, rarity: int):
-        if rarity <= 0:
-            color = '#aaaaaa'
-        elif rarity <= 1:
-            color = '#4ade80'
-        elif rarity <= 2:
-            color = '#60a5fa'
-        elif rarity <= 3:
-            color = '#a855f7'
-        else:
-            color = '#fbbf24'
-        self.setStyleSheet(slot_rarity('ItemSlotWidget', color))
+        self._rebuild()
     def clear_item(self):
         self.slot_data = None
-        self._apply_empty_style()
+        self._rebuild()
     def set_selected_multi(self, selected):
         self.multi_selected = selected
-        if not self.slot_data:
-            return
         if selected:
-            self.setStyleSheet(slot_multi_selected('ItemSlotWidget'))
+            self.setStyleSheet(slot_multi_selected('QFrame#itemSlot'))
         else:
-            rarity = self.slot_data.get('rarity', 0)
-            self._apply_rarity_style(rarity)
+            self.setStyleSheet(slot_full('QFrame#itemSlot'))
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._click_modifiers = event.modifiers()
@@ -103,29 +162,6 @@ class ItemSlotWidget(QFrame):
         super().mouseDoubleClickEvent(event)
     def contextMenuEvent(self, event):
         self.context_menu_requested.emit(self.slot_data, event.globalPos())
-    def enterEvent(self, event):
-        if self.slot_data:
-            item_name = self.slot_data.get('item_name', 'Unknown')
-            qty = self.slot_data.get('stack_count', 1)
-            item_id = self.slot_data.get('item_id', '')
-            item_desc = self.slot_data.get('description', '')
-            is_booth = self.slot_data.get('is_booth_product', False)
-            is_booth_ask = self.slot_data.get('is_booth_asking', False)
-            if is_booth:
-                cost_name = self.slot_data.get('cost_name', 'Unknown')
-                cost_count = self.slot_data.get('cost_count', 0)
-                tooltip = f'<b>{item_name}</b><br><i>{item_id}</i>'
-                tooltip += f'<br><br><span style="color:#fbbf24;font-weight:bold">&#xf0ec;</span> <b>{cost_name}</b> x{cost_count}'
-            elif is_booth_ask:
-                tooltip = f'<b>{item_name}</b><br>Qty: {qty}<br><i>{item_id}</i>'
-                tooltip += f'<br><br><span style="color:#fbbf24;font-weight:bold">&#xf0ec; Asking Price</span>'
-            else:
-                tooltip = f'<b>{item_name}</b><br>Qty: {qty}<br><i>{item_id}</i>'
-            if item_desc:
-                cleaned = _clean_desc_for_tooltip(item_desc)
-                tooltip += f'<br><br><span style="color:#94a3b8;font-size:11px">{wrap_tooltip_text(cleaned)}</span>'
-            QToolTip.showText(QCursor.pos(), tooltip)
-        super().enterEvent(event)
 class EquipmentSlotWidget(QFrame):
     item_changed = Signal(str, object)
     double_clicked = Signal(object)
@@ -847,13 +883,13 @@ class MissionPanelWidget(QFrame):
         header.addWidget(self._missions_title); header.addStretch()
         self._sel_all = QPushButton(t('player_item.select_all', default='All'))
         self._sel_all.setFixedHeight(20)
-        self._sel_all.setStyleSheet('QPushButton { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(74,222,128,0.2); color: #FFFFFF; }')
+        self._sel_all.setStyleSheet('QPushButton { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(74,222,128,0.2); color: #FFFFFF; }')
         self._sel_all.setCursor(Qt.PointingHandCursor)
         self._sel_all.clicked.connect(lambda: self._toggle_all(True))
         header.addWidget(self._sel_all)
         self._sel_none = QPushButton(t('player_item.deselect_all', default='None'))
         self._sel_none.setFixedHeight(20)
-        self._sel_none.setStyleSheet('QPushButton { background: rgba(251,113,133,0.12); color: #FB7185; border: 1px solid rgba(251,113,133,0.2); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(251,113,133,0.2); color: #FFFFFF; }')
+        self._sel_none.setStyleSheet('QPushButton { background: rgba(251,113,133,0.12); color: #FB7185; border: 1px solid rgba(251,113,133,0.2); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 9px; } QPushButton:hover { background: rgba(251,113,133,0.2); color: #FFFFFF; }')
         self._sel_none.setCursor(Qt.PointingHandCursor)
         self._sel_none.clicked.connect(lambda: self._toggle_all(False))
         header.addWidget(self._sel_none)
@@ -1045,6 +1081,7 @@ class TechnologyPanelWidget(QFrame):
         self._tech_buttons = {}
         self._setup_ui()
         self._load_tech_data()
+        self._widgets_built = False
     def _load_tech_data(self):
         try:
             base_dir = constants.get_base_path()
@@ -1080,7 +1117,7 @@ class TechnologyPanelWidget(QFrame):
             sd = gvas.properties.get('SaveData', {}).get('value', {})
             uv = sd.get('UnlockedRecipeTechnologyNames', {}).get('value', {}).get('values', [])
             if isinstance(uv, list):
-                self._unlocked = {str(v) for v in uv}
+                self._unlocked = {str(v).lower() for v in uv}
             self._tp_value = int(sd.get('TechnologyPoint', {}).get('value', 0))
             self._atp_value = int(sd.get('bossTechnologyPoint', {}).get('value', 0))
         except Exception:
@@ -1145,32 +1182,49 @@ class TechnologyPanelWidget(QFrame):
         self._scroll_layout.addStretch()
         scroll.setWidget(self._scroll_ct)
         layout.addWidget(scroll, 1)
-    def _apply_tech_style(self, frame, asset):
-        unlocked = asset in self._unlocked
-        fg = '#e2e8f0' if unlocked else '#555'
-        bg = 'rgba(125,211,252,0.08)' if unlocked else 'rgba(255,255,255,0.03)'
-        bd = '1px solid rgba(125,211,252,0.3)' if unlocked else '1px solid rgba(255,255,255,0.06)'
-        frame.setStyleSheet(f'QFrame {{ background: {bg}; border: {bd}; border-radius: 4px; }} QFrame:hover {{ background: rgba(125,211,252,0.12); }}')
-        for child in frame.findChildren(QLabel):
-            obj_name = child.objectName()
-            if obj_name == 'cost_label':
-                child.setVisible(not unlocked)
-            elif obj_name == 'name_label':
-                child.setStyleSheet(f'font-size: 7px; color: {fg}; background: transparent;')
-    def _rebuild(self):
-        self._tech_buttons.clear()
-        while self._scroll_layout.count():
-            item = self._scroll_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-                w.deleteLater()
-        self._tp_spin.blockSignals(True); self._atp_spin.blockSignals(True)
-        self._tp_spin.setValue(self._tp_value); self._atp_spin.setValue(self._atp_value)
-        self._tp_spin.blockSignals(False); self._atp_spin.blockSignals(False)
+    def _make_tech_button(self, tech):
+        asset = tech.get('asset', '')
+        frame = QFrame()
+        frame.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        frame.setCursor(Qt.PointingHandCursor)
+        frame._tech_asset = asset
+        frame.installEventFilter(self)
+        name = tech.get('name', '')
+        tip = f'<b>{name}</b><br>({asset})'
+        tech_desc = tech.get('description', '')
+        if tech_desc:
+            cleaned = _clean_desc_for_tooltip(tech_desc)
+            tip += f'<br><br>{wrap_tooltip_text(cleaned)}'
+        tip += f'<br><br>Level {tech.get("level_cap",0)}  Cost: {tech.get("cost",0)}'
+        frame.setToolTip(tip)
+        vl = QVBoxLayout(frame); vl.setContentsMargins(2, 2, 2, 2); vl.setSpacing(0)
+        icon = tech.get('icon', '')
+        if icon:
+            base_dir = constants.get_base_path()
+            fp = resource_path(base_dir, 'game_data', icon.lstrip('/'))
+            if os.path.exists(fp):
+                pix = QPixmap(fp)
+                il = QLabel()
+                il.setPixmap(pix.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                il.setAlignment(Qt.AlignCenter)
+                vl.addWidget(il, 1)
+        cl = QLabel(str(tech.get('cost', 0)))
+        cl.setObjectName('cost_label')
+        cl.setAlignment(Qt.AlignCenter)
+        cl.setStyleSheet('font-size: 9px; font-weight: 700; color: #fbbf24; background: transparent;')
+        vl.addWidget(cl)
+        nl = QLabel(tech.get('name', ''))
+        nl.setObjectName('name_label')
+        nl.setAlignment(Qt.AlignCenter)
+        vl.addWidget(nl)
+        self._apply_tech_style(frame, asset)
+        self._tech_buttons[asset] = frame
+        return frame
+    def _build_all_widgets(self):
         groups = self._grouped_techs()
         for lc, g in groups.items():
             row_w = QWidget()
+            row_w.setObjectName(f'techRow_{lc}')
             row_w.setStyleSheet('QWidget:hover { background: rgba(255,255,255,0.02); }')
             rl = QHBoxLayout(row_w); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(4)
             badge = QLabel(str(lc))
@@ -1195,8 +1249,28 @@ class TechnologyPanelWidget(QFrame):
                 ph.setStyleSheet('background: rgba(167,139,250,0.04); border: 1px dashed rgba(167,139,250,0.1); border-radius: 4px;')
                 rl.addWidget(ph)
             rl.addStretch()
-            self._scroll_layout.addWidget(row_w)
-        self._scroll_layout.addStretch()
+            self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, row_w)
+    def _apply_tech_style(self, frame, asset):
+        unlocked = asset.lower() in self._unlocked
+        fg = '#e2e8f0' if unlocked else '#555'
+        bg = 'rgba(125,211,252,0.08)' if unlocked else 'rgba(255,255,255,0.03)'
+        bd = '1px solid rgba(125,211,252,0.3)' if unlocked else '1px solid rgba(255,255,255,0.06)'
+        frame.setStyleSheet(f'QFrame {{ background: {bg}; border: {bd}; border-radius: 4px; }} QFrame:hover {{ background: rgba(125,211,252,0.12); }}')
+        for child in frame.findChildren(QLabel):
+            obj_name = child.objectName()
+            if obj_name == 'cost_label':
+                child.setVisible(not unlocked)
+            elif obj_name == 'name_label':
+                child.setStyleSheet(f'font-size: 7px; color: {fg}; background: transparent;')
+    def _rebuild(self):
+        if not self._widgets_built:
+            self._build_all_widgets()
+            self._widgets_built = True
+        self._tp_spin.blockSignals(True); self._atp_spin.blockSignals(True)
+        self._tp_spin.setValue(self._tp_value); self._atp_spin.setValue(self._atp_value)
+        self._tp_spin.blockSignals(False); self._atp_spin.blockSignals(False)
+        for asset, frame in self._tech_buttons.items():
+            self._apply_tech_style(frame, asset)
         self._scroll_ct.update()
     def _make_tech_button(self, tech):
         asset = tech.get('asset', '')
@@ -1237,10 +1311,11 @@ class TechnologyPanelWidget(QFrame):
         self._tech_buttons[asset] = frame
         return frame
     def _toggle_tech(self, asset):
-        if asset in self._unlocked:
-            self._unlocked.discard(asset)
+        key = asset.lower()
+        if key in self._unlocked:
+            self._unlocked.discard(key)
         else:
-            self._unlocked.add(asset)
+            self._unlocked.add(key)
         frame = self._tech_buttons.get(asset)
         if frame:
             self._apply_tech_style(frame, asset)
@@ -1253,7 +1328,7 @@ class TechnologyPanelWidget(QFrame):
         from palworld_aio.managers.player_manager import set_player_boss_tech_points
         set_player_boss_tech_points(self._player_uid, val)
     def _select_all(self):
-        self._unlocked = {t.get('asset', '') for t in self._tech_data if t.get('asset')}
+        self._unlocked = {t.get('asset', '').lower() for t in self._tech_data if t.get('asset')}
         for asset, frame in self._tech_buttons.items():
             self._apply_tech_style(frame, asset)
     def _deselect_all(self):
@@ -1314,6 +1389,22 @@ class InventoryGridWidget(QWidget):
         self._multi_selected = set()
         self._multi_select_anchor = None
         self._setup_ui()
+    def _ensure_slot(self, index):
+        if index in self.slots:
+            return self.slots[index]
+        row = index // GRID_COLS
+        col = index % GRID_COLS
+        slot = ItemSlotWidget(index, self.container_type)
+        slot.clicked.connect(self._on_slot_clicked)
+        slot.double_clicked.connect(self._on_slot_double_clicked)
+        slot.context_menu_requested.connect(self._on_slot_context_menu)
+        self.grid_layout.addWidget(slot, row, col)
+        slot.setVisible(index < self.max_visible_slots)
+        self.slots[index] = slot
+        return slot
+    def _ensure_slots_up_to(self, count):
+        for i in range(len(self.slots), count):
+            self._ensure_slot(i)
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -1400,39 +1491,29 @@ class InventoryGridWidget(QWidget):
         self.grid_layout.setHorizontalSpacing(2)
         self.grid_layout.setVerticalSpacing(4)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
+        for c in range(GRID_COLS):
+            self.grid_layout.setColumnStretch(c, 1)
         scroll.setWidget(self.grid_widget)
         main_layout.addWidget(scroll)
     def set_max_slots(self, max_slots: int):
-        if max_slots == self.max_visible_slots and self.slots:
+        display_slots = max(max_slots, 42)
+        if display_slots == self.max_visible_slots and self.slots:
             return
-        self.max_visible_slots = max_slots
-        current_count = len(self.slots)
-        if max_slots < current_count:
-            for i in range(max_slots, current_count):
-                slot = self.slots.pop(i)
-                self.grid_layout.removeWidget(slot)
-                slot.setParent(None)
-                slot.hide()
-                slot.deleteLater()
-        for i in range(len(self.slots), max_slots):
-            row = i // GRID_COLS
-            col = i % GRID_COLS
-            slot = ItemSlotWidget(i, self.container_type)
-            slot.clicked.connect(self._on_slot_clicked)
-            slot.double_clicked.connect(self._on_slot_double_clicked)
-            slot.context_menu_requested.connect(self._on_slot_context_menu)
-            self.grid_layout.addWidget(slot, row, col)
-            self.slots[i] = slot
+        self.max_visible_slots = display_slots
+        self._ensure_slots_up_to(display_slots)
+        for i, slot in self.slots.items():
+            slot.setVisible(i < display_slots)
     def load_items(self, items: list, max_slots: int=None):
         if max_slots is not None:
             self.set_max_slots(max_slots)
         self.current_items = items
         self._clear_multi_selection()
-        for slot in self.slots.values():
-            slot.clear_item()
+        visible_count = min(len(self.slots), self.max_visible_slots)
+        for i in range(visible_count):
+            self.slots[i].clear_item()
         for item in items:
             slot_index = item.get('slot_index', 0)
-            if slot_index in self.slots:
+            if slot_index < len(self.slots):
                 self.slots[slot_index].set_item(item)
     def _on_slot_clicked(self, slot_data):
         sender = self.sender()
@@ -1795,6 +1876,7 @@ class PlayerInventoryTab(QWidget):
         self.current_player_uid = None
         self.current_player_name = None
         self._player_list = []
+        self._tab_loaded_for = {}
         self._syncing = False
         self.equip_headers = {}
         self._context_container_type = 'main'
@@ -2054,8 +2136,11 @@ class PlayerInventoryTab(QWidget):
             return
         self._save_stats_to_raw_data()
         self._update_player_dropdown_level()
-        if hasattr(self.parent_window, 'refresh_all'):
-            self.parent_window.refresh_all()
+        pw = self.parent_window
+        if hasattr(pw, '_refresh_players'):
+            pw._refresh_players()
+        if hasattr(pw, '_refresh_stats'):
+            pw._refresh_stats()
     def _on_missions_changed(self):
         if not self.current_player_uid:
             return
@@ -2066,11 +2151,22 @@ class PlayerInventoryTab(QWidget):
     def _on_tab_changed(self, idx):
         if not self.current_player_uid:
             return
+        if idx not in (3, 4):
+            return
         uid = self.current_player_uid
-        if idx == 3:
-            self.missions_panel.load_player(uid)
-        elif idx == 4:
-            self.tech_panel.load_player(uid)
+        if self._tab_loaded_for.get(idx) == uid:
+            return
+        QApplication.processEvents()
+        self.inv_tabs.blockSignals(True)
+        try:
+            if idx == 3:
+                self.missions_panel.load_player(uid)
+            elif idx == 4:
+                self.tech_panel.load_player(uid)
+            self._tab_loaded_for[idx] = uid
+        finally:
+            QApplication.processEvents()
+            self.inv_tabs.blockSignals(False)
     def refresh_players(self):
         self._player_list = []
         self.current_player_uid = None
@@ -2093,6 +2189,8 @@ class PlayerInventoryTab(QWidget):
         def on_finished(inv):
             self.inventory = inv
             self.player_select_btn.setText(display)
+            self.inv_tabs.setCurrentIndex(0)
+            self._tab_loaded_for.clear()
             self._show_inventory()
             self._refresh_display()
         run_with_loading(on_finished, task)
@@ -2140,6 +2238,8 @@ class PlayerInventoryTab(QWidget):
                 self._syncing = True
                 self.parent_window.pal_editor_tab._select_player_ref_only(uid, name, display)
                 self._syncing = False
+            self.inv_tabs.setCurrentIndex(0)
+            self._tab_loaded_for.clear()
             if is_loading_active():
                 def task():
                     return get_player_inventory(uid)
@@ -2246,7 +2346,7 @@ class PlayerInventoryTab(QWidget):
 
             total = len(to_add) + len(missing_unlocks)
             if not total:
-                self._refresh_display()
+                QTimer.singleShot(0, self._refresh_display)
                 self._themed_message_box(QMessageBox.Information, t('inventory.add_all_key_items', default='Add All Key Items'), t('inventory.no_new_items', default='All key items already present.'))
                 return
 
@@ -2402,9 +2502,16 @@ class PlayerInventoryTab(QWidget):
                 _consolidate_container_slots(key_c, 'key', SINGLETON_TYPE_A)
                 self._update_raw_save_data('key', key_c)
             self.inventory.save()
+            main_c = self.inventory.get_container('main')
+            if main_c:
+                self.main_grid.load_items(main_c.slots)
+            key_c = self.inventory.get_container('key')
+            if key_c:
+                self.key_grid.load_items(key_c.slots)
         dlg = InventoryLoadoutDialog(self, _get_items, _apply_items, loadouts_path=_INV_LOADOUTS_PATH)
         dlg.exec()
-        self._refresh_display()
+        QApplication.processEvents()
+        QTimer.singleShot(0, self._refresh_display)
     def _on_sort_requested(self):
         if not self.inventory:
             return
@@ -2484,9 +2591,22 @@ class PlayerInventoryTab(QWidget):
                 container.update_slots([s for s in container.slots if s.get('slot_index') != slot_idx])
                 container._standardized_container.add_item(equip_item['id'], equip_item.get('qty', 1), slot_index=slot_idx)
             self.inventory.save()
+            main_c = self.inventory.get_container('main')
+            if main_c:
+                self.main_grid.load_items(main_c.slots)
+            key_c = self.inventory.get_container('key')
+            if key_c:
+                self.key_grid.load_items(key_c.slots)
+            equipment = self.inventory.get_equipment()
+            for slot_name, item in equipment.items():
+                if slot_name in self.equip_slots:
+                    sw = self.equip_slots[slot_name]
+                    if not sw.is_locked():
+                        sw.set_item(item)
         dlg = InventoryLoadoutDialog(self, _get_equipment, _apply_equipment, title=t('inventory.equip_loadouts_title', default='Equipment Loadouts'), loadouts_path=_EQ_LOADOUTS_PATH, key_prefix='inventory.equip')
         dlg.exec()
-        self._refresh_display()
+        QApplication.processEvents()
+        QTimer.singleShot(0, self._refresh_display)
     def _clear_all_inventory(self):
         if not self.current_player_uid:
             QMessageBox.warning(self, t('inventory.select_player', default='Select Player...'), t('inventory.select_player_first', default='Please select a player first.'))
@@ -2699,7 +2819,7 @@ class PlayerInventoryTab(QWidget):
     def _on_empty_slot_double_clicked(self, container_type: str, slot_index: int):
         self._context_container_type = container_type
         self._context_slot_index = slot_index
-        self._show_add_item_dialog()
+        QTimer.singleShot(0, self._show_add_item_dialog)
     def _delete_item_direct(self, slot_data: dict):
         if not self.inventory or not slot_data:
             return
@@ -2814,9 +2934,16 @@ class PlayerInventoryTab(QWidget):
                     if s.get('slot_index') in accessory_indices:
                         exclude_assets.add(s.get('item_id', ''))
         dialog = ItemPickerDialog(self, filter_type_a=slot_filter.get('type_a'), filter_type_b=slot_filter.get('type_b'), hide_quantity=slot_type not in ('food', 'weapon'), exclude_assets=exclude_assets)
-        dialog.item_selected.connect(lambda item_id, qty: self._do_add_to_equip_slot(slot_name, container_type, item_id, qty))
+        if not hasattr(self, '_keep_equip_dialogs'):
+            self._keep_equip_dialogs = []
+        self._keep_equip_dialogs.append(dialog)
+        self._pending_equip_add = None
+        dialog.item_selected.connect(lambda i, q: setattr(self, '_pending_equip_add', (slot_name, container_type, i, q)))
         dialog.exec()
-        self._refresh_display()
+        if self._pending_equip_add:
+            self._do_add_to_equip_slot(*self._pending_equip_add)
+            self._pending_equip_add = None
+        QTimer.singleShot(0, self._refresh_display)
     def _do_add_to_equip_slot(self, slot_name: str, container_type: str, item_id: str, quantity: int):
         if not self.inventory:
             return
@@ -2845,7 +2972,8 @@ class PlayerInventoryTab(QWidget):
                 if container.set_item_count(slot_index, new_qty):
                     self._update_raw_save_data(container_type, container)
                     self.inventory.save()
-                    self._refresh_display()
+                    QApplication.processEvents()
+                    QTimer.singleShot(0, self._refresh_display)
     def _clear_equip_slot(self, slot_name: str, slot_widget):
         current_item = slot_widget.current_item
         if not current_item:
@@ -2886,10 +3014,18 @@ class PlayerInventoryTab(QWidget):
             dialog = ItemPickerDialog(self, filter_type_a='EPalItemTypeA::Essential', exclude_assets=exclude)
         else:
             dialog = ItemPickerDialog(self, filter_exclude_type_a='EPalItemTypeA::Essential')
-        dialog.item_selected.connect(self._add_item_to_inventory)
+        if not hasattr(self, '_keep_dialogs'):
+            self._keep_dialogs = []
+        self._keep_dialogs.append(dialog)
+        self._pending_add = None
+        dialog.item_selected.connect(lambda i, q: setattr(self, '_pending_add', (i, q)))
         dialog.exec()
-        self._refresh_display()
-    def _add_item_to_inventory(self, item_id: str, quantity: int):
+        self._keep_dialogs.remove(dialog)
+        if self._pending_add:
+            self._do_add_item(*self._pending_add)
+            self._pending_add = None
+        QTimer.singleShot(0, self._refresh_display)
+    def _do_add_item(self, item_id: str, quantity: int):
         if not self.inventory:
             return
         actual_container_type = ItemData.get_target_container(item_id)
@@ -3013,7 +3149,8 @@ class PlayerInventoryTab(QWidget):
                 relic_type = slot_data.get('relic_type', '')
                 if relic_type:
                     self.inventory.set_effigy_count(relic_type, new_qty)
-                    self._refresh_display()
+                    QApplication.processEvents()
+                    QTimer.singleShot(0, self._refresh_display)
                 return
             if slot_data.get('is_bounty'):
                 item_id = slot_data.get('item_id', '')
@@ -3022,12 +3159,14 @@ class PlayerInventoryTab(QWidget):
                     for _ in range(new_qty - 1):
                         self.inventory._ensure_boss_defeat_flags([item_id])
                     self.inventory._save_player_sav()
-                    self._refresh_display()
+                    QApplication.processEvents()
+                    QTimer.singleShot(0, self._refresh_display)
                 return
             container_type = slot_data.get('container_type', 'main')
             slot_index = slot_data.get('slot_index', 0)
             if self.inventory.update_quantity(container_type, slot_index, new_qty):
-                self._refresh_display()
+                QApplication.processEvents()
+                QTimer.singleShot(0, self._refresh_display)
     def _update_player_dropdown_level(self):
         if not self.current_player_uid:
             return
@@ -3146,6 +3285,8 @@ class PlayerInventoryTab(QWidget):
                 display = player['display']
                 self.player_select_btn.setText(display)
                 break
+        self.inv_tabs.setCurrentIndex(0)
+        self._tab_loaded_for.clear()
         self._show_inventory()
         self.modified = False
         self.inventory = get_player_inventory(self.current_player_uid)

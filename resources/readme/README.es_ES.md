@@ -589,13 +589,13 @@ Las salidas van a `dist/`:
 
 ### cx_Freeze (instalador de Windows)
 
-Para un paquete local de Windows `.7z`:
+Para un paquete local de Windows `.zip`:
 
 ```
 scripts\build_cx.cmd
 ```
 
-Esto crea `PST_standalone_v{version}.7z` en la raíz del proyecto.
+Esto crea `PST_standalone_v{version}.zip` en la raíz del proyecto.
 
 ### Constructor interactivo
 

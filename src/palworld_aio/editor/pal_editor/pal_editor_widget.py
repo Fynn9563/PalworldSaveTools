@@ -632,7 +632,6 @@ class PalEditorWidget(QWidget, BulkOperationMixin):
             sp.update(raw)
             inst = arr[abs_idx].get('InstanceId', {}).get('value', {})
             uid_val = str(self.player_uid).replace('-', '').upper() if self.player_uid else '00000000000000000000000000000000'
-            inst_id_val = str(uuid.uuid4()).upper().replace('-', '')
             inst['PlayerUId'] = {'struct_type': 'Guid', 'struct_id': '00000000-0000-0000-0000-000000000000', 'id': None, 'value': str(self.player_uid) if self.player_uid else '00000000-0000-0000-0000-000000000000', 'type': 'StructProperty'}
             inst['InstanceId'] = {'struct_type': 'Guid', 'struct_id': '00000000-0000-0000-0000-000000000000', 'id': None, 'value': str(uuid.uuid4()), 'type': 'StructProperty'}
             inst['DebugName'] = {'id': None, 'type': 'StrProperty', 'value': ''}
@@ -1139,10 +1138,12 @@ class PalEditorWidget(QWidget, BulkOperationMixin):
         is_party = sender in self.party_slots
         dlg = PalCreateDialog(self, is_party, slot_index)
         if dlg.exec() == QDialog.Accepted and dlg.created_item:
-            self._update_party_slots()
-            self._update_palbox_page()
-            self._update_dashboard_stats()
             self._increment_pal_count()
+            QTimer.singleShot(0, self._refresh_after_pal_create)
+    def _refresh_after_pal_create(self):
+        self._update_party_slots()
+        self._update_palbox_page()
+        self._update_dashboard_stats()
     def _open_bulk_clone(self):
         if not self.player_uid:
             return

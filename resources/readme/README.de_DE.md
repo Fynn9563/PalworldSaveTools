@@ -582,13 +582,13 @@ Ausgaben gehen an `dist/`:
 
 ### cx_Freeze (Windows Installer)
 
-Für ein lokales Windows `.7z`-Paket:
+Für ein lokales Windows `.zip`-Paket:
 
 ```
 scripts\build_cx.cmd
 ```
 
-Dadurch wird `PST_standalone_v{version}.7z` im Projektstamm erstellt.
+Dadurch wird `PST_standalone_v{version}.zip` im Projektstamm erstellt.
 
 ### Interaktiver Builder
 

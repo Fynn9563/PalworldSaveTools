@@ -13,15 +13,9 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 LANGUAGES = {'zh_CN': {'name': 'Simplified Chinese', 'code': 'zh-CN'}, 'de_DE': {'name': 'German', 'code': 'de'}, 'es_ES': {'name': 'Spanish', 'code': 'es'}, 'fr_FR': {'name': 'French', 'code': 'fr'}, 'ru_RU': {'name': 'Russian', 'code': 'ru'}, 'ja_JP': {'name': 'Japanese', 'code': 'ja'}, 'ko_KR': {'name': 'Korean', 'code': 'ko'}, 'pt_BR': {'name': 'Portuguese (Brazil)', 'code': 'pt'}}
 NEW_TRANSLATIONS = {
-    'inventory.missions': 'Missions',
-    'inventory.missions_complete': 'Complete Selected',
-    'inventory.missions_reset': 'Reset Selected',
-    'inventory.missions_active': 'Active Missions',
-    'inventory.missions_completed': 'Completed Missions',
-    'inventory.missions_not_started': 'Not Started',
-    'edit_pals.add_active_skill': 'Add Active Skill',
-    'inventory.technology': 'Technology',
-    'player_technology.applied': 'Applied {count} tech(s) to {players} player(s).',
+    'deletion.menu.reset_lock_gimmick': 'Reset Mini Game Towers',
+    'loading.reset_lock_gimmick': 'Resetting mini game towers...',
+    'lock_gimmick_reset_count': 'Reset {count} mini game towers',
 }
 OLD_KEYS = []
 def _clean_uv_locks():

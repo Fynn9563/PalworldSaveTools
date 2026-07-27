@@ -419,10 +419,11 @@ class MapTab(QWidget):
         self.info_label = QLabel(t('map.info.select_base') if t else 'Click on a base marker or list item to view details')
         self.info_label.setWordWrap(True)
         self.info_label.setObjectName('sectionHeader')
-        self.info_label.setStyleSheet('QLabel#sectionHeader { margin: 0px; padding: 8px 10px; }')
+        self.info_label.setStyleSheet('QLabel#sectionHeader { margin: 0px; padding: 8px 10px; } QLabel a { color: #e0e0e0; text-decoration: none; } QLabel a:hover { color: #7DD3FC; }')
         self.info_label.setAlignment(Qt.AlignCenter)
-        self.info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
         self.info_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.info_label.linkActivated.connect(self._on_info_link_clicked)
         sidebar_layout.addWidget(self.info_label)
         body_layout = QHBoxLayout()
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -1220,8 +1221,11 @@ class MapTab(QWidget):
         base_id = str(base_data.get('base_id', ''))
         pal_count = base_data.get('pal_count', 0)
         coords = base_data.get('coords', (0, 0))
-        info = f"\n        <b>{guild_name}</b><br>\n        {(t('map.info.level') if t else 'Level')}: {guild_level}<br>\n        {(t('map.info.admin') if t else 'Admin:')} {leader_name}<br>\n        {(t('map.info.members') if t else 'Members:')} {member_count}<br>\n        {(t('map.info.base_camps') if t else 'Base Camps:')} {base_position}/{total_bases}<br>\n        {(t('map.info.base_id') if t else 'Base ID:')} {base_id}<br>\n        {(t('map.info.base_pals') if t else 'Base Pals:')} {pal_count}<br>\n        {(t('map.info.location') if t else 'Location:')} X:{int(coords[0])},Y:{int(coords[1])}\n        "
+        info = f"\n        <b>{guild_name}</b><br>\n        {(t('map.info.level') if t else 'Level')}: {guild_level}<br>\n        {(t('map.info.admin') if t else 'Admin:')} {leader_name}<br>\n        {(t('map.info.members') if t else 'Members:')} {member_count}<br>\n        {(t('map.info.base_camps') if t else 'Base Camps:')} {base_position}/{total_bases}<br>\n        {(t('map.info.base_id') if t else 'Base ID:')} <a href=\"copy://{base_id}\" style=\"color: #e0e0e0; text-decoration: none;\">{base_id}</a><br>\n        {(t('map.info.base_pals') if t else 'Base Pals:')} {pal_count}<br>\n        {(t('map.info.location') if t else 'Location:')} X:{int(coords[0])},Y:{int(coords[1])}\n        "
         self.info_label.setText(info.strip())
+    def _on_info_link_clicked(self, url):
+        if url.startswith('copy://'):
+            QApplication.clipboard().setText(url[7:])
     def _on_marker_clicked(self, data, marker=None):
         if 'player_uid' in data:
             self._update_player_info(data)
@@ -1836,9 +1840,32 @@ class MapTab(QWidget):
         dialog = NudgeInputDialog(self)
         if dialog.exec() != QDialog.Accepted:
             return
-        dx, dy, dz = dialog.result_value
-        if dx == 0 and dy == 0 and dz == 0:
+        dx, dy, dz, angle = dialog.result_value
+        if dx == 0 and dy == 0 and dz == 0 and angle == 0:
             return
+        import math
+        def _rotate_pos(cx, cy, px, py):
+            ox = px - cx
+            oy = py - cy
+            a = math.radians(angle)
+            ca = math.cos(a)
+            sa = math.sin(a)
+            return (cx + ox * ca - oy * sa, cy + ox * sa + oy * ca)
+        def _rotate_quat(rot):
+            if not rot or angle == 0:
+                return rot
+            ha = math.radians(angle) / 2
+            sin_a = math.sin(ha)
+            cos_a = math.cos(ha)
+            qx = rot.get('x', 0.0)
+            qy = rot.get('y', 0.0)
+            qz = rot.get('z', 0.0)
+            qw = rot.get('w', 1.0)
+            rot['x'] = cos_a * qx - sin_a * qy
+            rot['y'] = sin_a * qx + cos_a * qy
+            rot['z'] = cos_a * qz + sin_a * qw
+            rot['w'] = cos_a * qw - sin_a * qz
+            return rot
         def task():
             bid = str(base_data['base_id']).replace('-', '').lower()
             wsd = constants.loaded_level_json['properties']['worldSaveData']['value']
@@ -1846,14 +1873,21 @@ class MapTab(QWidget):
             base_entry = next((b for b in base_list if str(b['key']).replace('-', '').lower() == bid), None)
             if not base_entry:
                 return False
-            base_entry['value']['RawData']['value']['transform']['translation']['x'] += dx
-            base_entry['value']['RawData']['value']['transform']['translation']['y'] += dy
-            base_entry['value']['RawData']['value']['transform']['translation']['z'] += dz
+            bt = base_entry['value']['RawData']['value']['transform']
+            bt['translation']['x'] += dx
+            bt['translation']['y'] += dy
+            bt['translation']['z'] += dz
+            _rotate_quat(bt.get('rotation'))
+            cx = bt['translation']['x']
+            cy = bt['translation']['y']
             try:
-                wd_trans = base_entry['value']['WorkerDirector']['value']['RawData']['value']['spawn_transform']['translation']
-                wd_trans['x'] += dx
-                wd_trans['y'] += dy
-                wd_trans['z'] += dz
+                wd = base_entry['value']['WorkerDirector']['value']['RawData']['value']['spawn_transform']
+                if angle:
+                    sx, sy = _rotate_pos(cx, cy, wd['translation']['x'], wd['translation']['y'])
+                    wd['translation']['x'] = sx
+                    wd['translation']['y'] = sy
+                wd['translation']['z'] += dz
+                _rotate_quat(wd.get('rotation'))
             except:
                 pass
             map_objs = wsd.get('MapObjectSaveData', {}).get('value', {}).get('values', [])
@@ -1864,14 +1898,21 @@ class MapTab(QWidget):
                         continue
                     itc = mr.get('initital_transform_cache', {})
                     if 'translation' in itc:
-                        itc['translation']['x'] += dx
-                        itc['translation']['y'] += dy
-                        itc['translation']['z'] += dz
+                        t = itc['translation']
+                        if angle:
+                            nx, ny = _rotate_pos(cx, cy, t['x'], t['y'])
+                            t['x'] = nx
+                            t['y'] = ny
+                        t['z'] += dz
+                        _rotate_quat(itc.get('rotation'))
+                        _rotate_quat(itc.get('transform', {}).get('rotation'))
                     if 'transform' in itc:
                         t2 = itc['transform'].get('translation', {})
                         if t2:
-                            t2['x'] += dx
-                            t2['y'] += dy
+                            if angle:
+                                nx, ny = _rotate_pos(cx, cy, t2['x'], t2['y'])
+                                t2['x'] = nx
+                                t2['y'] = ny
                             t2['z'] += dz
                 except:
                     pass
@@ -1885,9 +1926,12 @@ class MapTab(QWidget):
                             continue
                         tr = wr.get('transform', {})
                         if 'translation' in tr and tr['translation']:
-                            tr['translation']['x'] += dx
-                            tr['translation']['y'] += dy
+                            if angle:
+                                nx, ny = _rotate_pos(cx, cy, tr['translation']['x'], tr['translation']['y'])
+                                tr['translation']['x'] = nx
+                                tr['translation']['y'] = ny
                             tr['translation']['z'] += dz
+                            _rotate_quat(tr.get('rotation'))
                     except:
                         pass
             constants.invalidate_container_lookup()

@@ -582,13 +582,13 @@ uv run python build/nuitka/build_nuitka.py --onedir
 
 ### cx_Freeze (установщик Windows)
 
-Для локального пакета Windows `.7z`:
+Для локального пакета Windows `.zip`:
 
 ```
 scripts\build_cx.cmd
 ```
 
-Это создаст `PST_standalone_v{version}.7z` в корне проекта.
+Это создаст `PST_standalone_v{version}.zip` в корне проекта.
 
 ### Интерактивный конструктор
 

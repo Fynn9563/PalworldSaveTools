@@ -1397,8 +1397,12 @@ class ContainerInfoWidget(QWidget):
         self.slots_label = QLabel(t('base_inventory.slots_count').format(count=0) if t else 'Slots: 0')
         self.slots_label.setStyleSheet('font-size: 12px;')
         info_layout.addWidget(self.slots_label)
-        self.id_label = QLabel('Unknown')
-        self.id_label.setStyleSheet('font-size: 12px;')
+        self.id_label = QPushButton('Unknown')
+        self.id_label.setFlat(True)
+        self.id_label.setStyleSheet('QPushButton { font-size: 12px; color: #e0e0e0; background: transparent; border: none; text-align: left; padding: 0; } QPushButton:hover { color: #7DD3FC; }')
+        self.id_label.setCursor(Qt.PointingHandCursor)
+        self.id_label.setToolTip(t('base_inventory.click_copy_container_id') if t else 'Click to copy Container ID')
+        self.id_label.clicked.connect(lambda: (QApplication.clipboard().setText(self.id_label.text()), None))
         info_layout.addWidget(self.id_label)
         header_layout.addLayout(info_layout)
         header_layout.addStretch()
@@ -1604,7 +1608,8 @@ class _BasePalIcon(QFrame):
                     self._children.append(eb)
         level_lbl = StrokedLabel(f'{level}', self)
         level_lbl.setStyleSheet('color: #7DD3FC; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.7); border: 1px solid rgba(125,211,252,0.25); border-radius: 3px; padding: 0 3px;')
-        level_lbl.setFixedSize(18, 11)
+        level_lbl.adjustSize()
+        level_lbl.setFixedHeight(11)
         level_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
         level_lbl._slot_child_kind = 'level'
         level_lbl.show()
@@ -2037,10 +2042,9 @@ class BasePalsContentWidget(QFrame):
             else:
                 container_id = '00000000-0000-0000-0000-000000000000'
             import uuid
-            instance_id = str(uuid.uuid4()).upper()
             slot_idx = next((i for i, p in enumerate(self._pals) if p is None), len(self._pals))
             entry = _generate_pal_save_param(cid, nick, '00000000-0000-0000-0000-000000000000', container_id, slot_idx)
-            instance_id = entry.get('key', {}).get('InstanceId', {}).get('value', instance_id)
+            instance_id = entry.get('key', {}).get('InstanceId', {}).get('value', '')
             guild_id = None
             parent = self.parent()
             while parent:
@@ -2104,10 +2108,9 @@ class BasePalsContentWidget(QFrame):
             else:
                 container_id = '00000000-0000-0000-0000-000000000000'
             import uuid
-            instance_id = str(uuid.uuid4()).upper()
             slot_idx = next((i for i, p in enumerate(self._pals) if p is None), len(self._pals))
             entry = _generate_pal_save_param(cid, nick, '00000000-0000-0000-0000-000000000000', container_id, slot_idx)
-            instance_id = entry.get('key', {}).get('InstanceId', {}).get('value', instance_id)
+            instance_id = entry.get('key', {}).get('InstanceId', {}).get('value', '')
             new_raw = _get_raw_from_item(entry)
             if new_raw:
                 for field in imported_raw:
@@ -3519,20 +3522,19 @@ class BaseInventoryTab(QWidget):
             self._show_warning(t('base_inventory.select_container_first') if t else 'Please select a container first')
             return
         dialog = ItemPickerDialog(self, filter_exclude_type_a='EPalItemTypeA::Essential')
-        dialog.item_selected.connect(lambda item_id, qty: self._do_add_item(item_id, qty))
+        self._pending_base_add = None
+        dialog.item_selected.connect(lambda i, q: setattr(self, '_pending_base_add', (i, q)))
         dialog.exec()
-        self._refresh_container_ui()
-    def _do_add_item(self, item_id: str, count: int):
-        if item_id and count > 0:
-            empty_slot_index = self.manager.find_empty_slot()
-            if empty_slot_index == -1:
-                self._show_warning(t('base_inventory.container_full') if t else 'Container is full!')
-                return
-            if self.manager.add_item_to_slot(empty_slot_index, item_id, count):
-                self._update_container_stats()
-                self._trigger_auto_save()
-            else:
-                self._show_warning(t('base_inventory.failed_to_add_item') if t else 'Failed to add item')
+        if self._pending_base_add:
+            iid, qty = self._pending_base_add
+            self._pending_base_add = None
+            if iid and qty > 0:
+                empty_slot_index = self.manager.find_empty_slot()
+                if empty_slot_index == -1:
+                    self._show_warning(t('base_inventory.container_full') if t else 'Container is full!')
+                elif self.manager.add_item_to_slot(empty_slot_index, iid, qty):
+                    self._trigger_auto_save()
+        QTimer.singleShot(0, self._refresh_container_ui)
     def _remove_item(self):
         if not self.manager.inventory_container:
             self._show_warning(t('base_inventory.select_container_first') if t else 'Please select a container first')
@@ -3557,7 +3559,7 @@ class BaseInventoryTab(QWidget):
                     self._clear_pal_booth_slots(container_info)
             if self.manager.clear_container(container_id):
                 self._on_container_selected(container_id)
-                self._show_info(t('base_inventory.container_cleared') if t else 'Container cleared successfully')
+                QTimer.singleShot(0, lambda: self._show_info(t('base_inventory.container_cleared') if t else 'Container cleared successfully'))
             else:
                 self._show_warning(t('base_inventory.failed_to_clear_container') if t else 'Failed to clear container')
     def _clear_pal_booth_slots(self, container_info):
@@ -3899,12 +3901,8 @@ class BaseInventoryTab(QWidget):
         if ok:
             slot_index = slot_data.get('slot_index', 0)
             if self.manager.update_item_count(slot_index, new_count):
-                inventory_container = self.manager.select_container(self.manager.current_container['id'])
-                if inventory_container:
-                    items = inventory_container.get_items()
-                    max_slots = inventory_container.get_max_slots()
-                    self.inventory_grid.load_items(items, max_slots=max_slots)
-                self._update_container_stats()
+                QApplication.processEvents()
+                QTimer.singleShot(0, self._refresh_after_base_add)
             else:
                 self._show_warning(t('base_inventory.failed_to_update_quantity') if t else 'Failed to update quantity')
     def _remove_item_from_slot(self, slot_data):
@@ -3921,17 +3919,19 @@ class BaseInventoryTab(QWidget):
                 self.manager.invalidate_cache()
                 self.manager.mark_dirty()
                 self._on_container_selected(container_info['id'])
-                self._update_container_stats()
+                QTimer.singleShot(0, self._update_container_stats)
                 return
         if self.manager.remove_item(slot_index, 999999):
-            inventory_container = self.manager.select_container(self.manager.current_container['id'])
-            if inventory_container:
-                items = inventory_container.get_items()
-                max_slots = inventory_container.get_max_slots()
-                self.inventory_grid.load_items(items, max_slots=max_slots)
-            self._update_container_stats()
+            QTimer.singleShot(0, self._refresh_after_remove)
         else:
             self._show_warning(t('base_inventory.failed_to_remove_item') if t else 'Failed to remove item')
+    def _refresh_after_remove(self):
+        inventory_container = self.manager.select_container(self.manager.current_container['id'])
+        if inventory_container:
+            items = inventory_container.get_items()
+            max_slots = inventory_container.get_max_slots()
+            self.inventory_grid.load_items(items, max_slots=max_slots)
+        self._update_container_stats()
     def _on_bulk_remove_items(self, items):
         if not self.manager or not self.manager.inventory_container or not items:
             return
@@ -3959,20 +3959,21 @@ class BaseInventoryTab(QWidget):
             self._show_warning(t('base_inventory.select_container_first') if t else 'Please select a container first')
             return
         dialog = ItemPickerDialog(self, filter_exclude_type_a='EPalItemTypeA::Essential')
-        dialog.item_selected.connect(lambda item_id, qty: self._do_add_item_to_slot(slot_index, item_id, qty))
+        self._pending_base_add = None
+        dialog.item_selected.connect(lambda i, q: setattr(self, '_pending_base_add', (slot_index, i, q)))
         dialog.exec()
-    def _do_add_item_to_slot(self, slot_index: int, item_id: str, count: int):
-        if item_id and count > 0:
-            if self.manager.add_item_to_slot(slot_index, item_id, count):
-                inventory_container = self.manager.select_container(self.manager.current_container['id'])
-                if inventory_container:
-                    items = inventory_container.get_items()
-                    max_slots = inventory_container.get_max_slots()
-                    self.inventory_grid.load_items(items, max_slots=max_slots)
-                self._update_container_stats()
+        if self._pending_base_add:
+            si, iid, qty = self._pending_base_add
+            self._pending_base_add = None
+            if iid and qty > 0 and self.manager.add_item_to_slot(si, iid, qty):
+                QTimer.singleShot(0, self._refresh_after_base_add)
                 self._trigger_auto_save()
-            else:
-                self._show_warning(t('base_inventory.failed_to_add_item') if t else 'Failed to add item')
+    def _refresh_after_base_add(self):
+        if self.manager.current_container:
+            inv = self.manager.select_container(self.manager.current_container['id'])
+            if inv:
+                self.inventory_grid.load_items(inv.get_items(), max_slots=inv.get_max_slots())
+            self._update_container_stats()
     def _trigger_auto_save(self):
         if self.manager.inventory_container:
             self._auto_save_timer.start()
@@ -4170,9 +4171,14 @@ class BaseInventoryTab(QWidget):
             new_slot_count = dialog.get_slot_count()
             if new_slot_count != current_slots:
                 if self.manager.expand_container_capacity(container_info['id'], new_slot_count):
-                    current_container_id = container_info['id']
-                    base_id = self._current_base_id
-                    if base_id:
-                        self._load_containers_for_base(base_id)
-                        self._restore_container_selection(current_container_id)
-            self._trigger_save()
+                    self._pending_slot_mod = (container_info['id'], self._current_base_id)
+            self._trigger_auto_save()
+            QTimer.singleShot(0, self._apply_slot_mod)
+    def _apply_slot_mod(self):
+        if not self._pending_slot_mod:
+            return
+        container_id, base_id = self._pending_slot_mod
+        self._pending_slot_mod = None
+        if base_id:
+            self._load_containers_for_base(base_id)
+            self._restore_container_selection(container_id)

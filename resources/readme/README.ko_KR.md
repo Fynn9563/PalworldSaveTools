@@ -582,13 +582,13 @@ uv run python build/nuitka/build_nuitka.py --onedir
 
 ### cx_Freeze(Windows 설치 프로그램)
 
-로컬 Windows `.7z` 패키지의 경우:
+로컬 Windows `.zip` 패키지의 경우:
 
 ```
 scripts\build_cx.cmd
 ```
 
-그러면 프로젝트 루트에 `PST_standalone_v{version}.7z`이 생성됩니다.
+그러면 프로젝트 루트에 `PST_standalone_v{version}.zip`이 생성됩니다.
 
 ### 인터랙티브 빌더
 

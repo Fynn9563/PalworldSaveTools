@@ -582,13 +582,13 @@ uv run python build/nuitka/build_nuitka.py --onedir
 
 ### cx_Freeze（Windows 安装程序）
 
-对于本地 Windows `.7z` 包：
+对于本地 Windows `.zip` 包：
 
 ```
 scripts\build_cx.cmd
 ```
 
-这将在项目根目录中创建 `PST_standalone_v{version}.7z` 。
+这将在项目根目录中创建 `PST_standalone_v{version}.zip` 。
 
 ### 交互式生成器
 
